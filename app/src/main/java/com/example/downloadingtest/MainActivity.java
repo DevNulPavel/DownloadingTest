@@ -8,9 +8,11 @@ import java.util.Iterator;
 
 import androidx.appcompat.app.AppCompatActivity;
 
+import android.Manifest;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.Button;
@@ -28,6 +30,8 @@ import com.example.downloadingtest.DownloadingService;
 import android.content.ServiceConnection;
 import android.content.ComponentName;
 import android.os.IBinder;
+
+import java.util.Vector;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 
@@ -84,7 +88,8 @@ public class MainActivity extends AppCompatActivity {
         //  startService(intent); - почему-то все равно вызывается onCreate сервиса
         // bindService(intent, _connection, Context.BIND_AUTO_CREATE);
 
-        _loader = new FilesLoader(this);
+        Vector<LoadTask> tasks = new Vector<>();
+        _loader = new FilesLoader(this, tasks);
 
         new Thread(new Runnable() {
             @Override
@@ -95,16 +100,17 @@ public class MainActivity extends AppCompatActivity {
                     }catch (Exception e) {
                     }
 
-                    if (_bound.get()){
-                        final double progress = _loader.getPercentProgressInfo();
+                    /*if (_bound.get()){
+                    }*/
 
-                        runOnUiThread(new Runnable() {
-                            @Override
-                            public void run() {
-                                _progress_bar.setProgress((int)progress);
-                            }
-                        });
-                    }
+                    final double progress = _loader.getPercentProgressInfo();
+
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            _progress_bar.setProgress((int)progress);
+                        }
+                    });
                 }
             }
         }).start();
@@ -122,8 +128,40 @@ public class MainActivity extends AppCompatActivity {
     void startBackgroundLoading(){
         if(_bound.get()){
             _tv.setText("Loading");
-            _loader.startLoading("http://speedtest.ftp.otenet.gr/files/test10Mb.db", "test_file.db");
         }
+
+        if (checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED ||
+                checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+
+            // Should we show an explanation?
+            if (shouldShowRequestPermissionRationale(Manifest.permission.READ_EXTERNAL_STORAGE)) {
+                // Explain to the user why we need to read the contacts
+            }
+            if (shouldShowRequestPermissionRationale(Manifest.permission.WRITE_EXTERNAL_STORAGE)) {
+                // Explain to the user why we need to read the contacts
+            }
+
+            requestPermissions(new String[]{Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE},
+                    213123123);
+
+            // MY_PERMISSIONS_REQUEST_READ_EXTERNAL_STORAGE is an
+            // app-defined int constant that should be quite unique
+
+            return;
+        }
+
+        // http://speedtest.tele2.net/
+        // https://speed.hetzner.de/100MB.bin
+        // https://speed.hetzner.de/1GB.bin
+        // https://speed.hetzner.de/10GB.bin
+        // http://speedtest.ftp.otenet.gr/files/test100Mb.db
+        Vector<LoadTask> tasks = new Vector<>();
+        LoadTask task = new LoadTask();
+        task.url = "https://speed.hetzner.de/1GB.bin";
+        task.file = "test_file.db";
+        tasks.add(task);
+
+        _loader.startLoading(tasks);
     }
 
     /**

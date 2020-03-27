@@ -1,5 +1,7 @@
 package com.example.downloadingtest;
 
+import android.Manifest;
+import android.content.pm.PackageManager;
 import android.app.Service;
 import android.content.Intent;
 import android.content.IntentFilter;
