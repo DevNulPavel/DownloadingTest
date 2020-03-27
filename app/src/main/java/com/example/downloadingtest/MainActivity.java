@@ -30,6 +30,7 @@ import com.example.downloadingtest.DownloadingService;
 import android.content.ServiceConnection;
 import android.content.ComponentName;
 import android.os.IBinder;
+import android.os.Environment;
 
 import java.util.Vector;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -157,7 +158,7 @@ public class MainActivity extends AppCompatActivity {
         Vector<LoadTask> tasks = new Vector<>();
         LoadTask task = new LoadTask();
         task.url = "https://speed.hetzner.de/1GB.bin";
-        task.file = "test_file.db";
+        task.resultFolder = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS).getAbsolutePath();
         tasks.add(task);
 
         _loader.startLoading(tasks);

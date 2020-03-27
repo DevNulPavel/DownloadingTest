@@ -140,7 +140,7 @@ public class DownloadingService extends Service {
                 cursor.close();
 
                 ProgressInfo info = new ProgressInfo();
-                info.file = pair.getValue().file;
+                //info.file = pair.getValue().file;
                 info.url = pair.getValue().url;
                 info.totalSize = bytes_total;
                 info.finishedSize =  bytes_downloaded;
@@ -182,7 +182,7 @@ public class DownloadingService extends Service {
         LoadingInfo info = new LoadingInfo();
         info.loadingId = downloadingID;
         info.loadSize = bytes_total;
-        info.file = file_path;
+        //info.file = file_path;
         info.url = url_string;
 
         synchronized (_files_loading){
