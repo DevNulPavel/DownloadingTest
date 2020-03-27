@@ -88,8 +88,7 @@ public class MainActivity extends AppCompatActivity {
         //  startService(intent); - почему-то все равно вызывается onCreate сервиса
         // bindService(intent, _connection, Context.BIND_AUTO_CREATE);
 
-        Vector<LoadTask> tasks = new Vector<>();
-        _loader = new FilesLoader(this, tasks);
+        _loader = new FilesLoader(this);
 
         new Thread(new Runnable() {
             @Override
