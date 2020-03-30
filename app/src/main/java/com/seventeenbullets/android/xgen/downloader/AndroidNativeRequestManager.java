@@ -1,14 +1,12 @@
-package com.example.downloadingtest;
+package com.seventeenbullets.android.xgen.downloader;
 
 import android.app.Activity;
 import android.os.Environment;
 
-import java.util.Vector;
 
-
-public class RequestManager extends Object {
+public class AndroidNativeRequestManager extends Object {
     private static Activity _activity = null;
-    private static FilesLoader _loader = null;
+    private static AndroidNativeFilesLoader _loader = null;
 
     private static native void initializeNative();
     private static native void destroyNative();
@@ -18,21 +16,21 @@ public class RequestManager extends Object {
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
 
-    private static FilesLoader.LoadingSuccessCallback _successCallback = new FilesLoader.LoadingSuccessCallback() {
+    private static AndroidNativeFilesLoader.LoadingSuccessCallback _successCallback = new AndroidNativeFilesLoader.LoadingSuccessCallback() {
         @Override
         public void onLoaded(LoadingInfo info) {
             loadingSuccess(info.loadingId);
         }
     };
 
-    private static FilesLoader.LoadingProgressCallback _progressCallback = new FilesLoader.LoadingProgressCallback() {
+    private static AndroidNativeFilesLoader.LoadingProgressCallback _progressCallback = new AndroidNativeFilesLoader.LoadingProgressCallback() {
         @Override
         public void onLoadingPorgress(LoadingInfo info, long totalSize, long loadedSize) {
             loadingProgress(info.loadingId, totalSize, loadedSize);
         }
     };
 
-    private static FilesLoader.LoadingFailedCallback _failedCallback = new FilesLoader.LoadingFailedCallback() {
+    private static AndroidNativeFilesLoader.LoadingFailedCallback _failedCallback = new AndroidNativeFilesLoader.LoadingFailedCallback() {
         @Override
         public void onLoadingFailed(LoadingInfo info) {
             loadingFailed(info.loadingId);
@@ -44,7 +42,7 @@ public class RequestManager extends Object {
     public static void initialize(Activity activity){
         initializeNative();
         _activity = activity;
-        _loader = new FilesLoader(activity, _successCallback, _progressCallback, _failedCallback);
+        _loader = new AndroidNativeFilesLoader(activity, _successCallback, _progressCallback, _failedCallback);
     }
 
     public static void finish(){

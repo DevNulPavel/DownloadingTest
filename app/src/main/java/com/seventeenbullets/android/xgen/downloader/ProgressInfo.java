@@ -1,4 +1,4 @@
-package com.example.downloadingtest;
+package com.seventeenbullets.android.xgen.downloader;
 
 public class ProgressInfo {
     public long totalSize;

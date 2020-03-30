@@ -35,6 +35,8 @@ import android.os.Environment;
 import java.util.Vector;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import com.seventeenbullets.android.xgen.downloader.AndroidNativeRequestManager;
+
 
 public class MainActivity extends AppCompatActivity {
     final private String TAG = "DOWNLOAD_TAG";
@@ -91,7 +93,7 @@ public class MainActivity extends AppCompatActivity {
         //  startService(intent); - почему-то все равно вызывается onCreate сервиса
         // bindService(intent, _connection, Context.BIND_AUTO_CREATE);
 
-        RequestManager.initialize(this);
+        AndroidNativeRequestManager.initialize(this);
 
         /*new Thread(new Runnable() {
             @Override
@@ -121,7 +123,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     public void onDestroy() {
         super.onDestroy();
-        RequestManager.finish();
+        AndroidNativeRequestManager.finish();
 
         //unbindService(_connection);
 

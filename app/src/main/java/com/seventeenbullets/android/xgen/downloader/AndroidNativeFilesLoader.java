@@ -1,4 +1,4 @@
-package com.example.downloadingtest;
+package com.seventeenbullets.android.xgen.downloader;
 
 import android.app.Activity;
 import android.app.DownloadManager;
@@ -24,7 +24,7 @@ import java.util.Map;
 import java.util.Vector;
 
 
-public class FilesLoader extends Object {
+public class AndroidNativeFilesLoader extends Object {
     final private String TAG = "DOWNLOAD_TAG";
 
     private Activity _context = null;
@@ -82,10 +82,10 @@ public class FilesLoader extends Object {
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    public FilesLoader(Activity context,
-                       LoadingSuccessCallback successCallback,
-                       LoadingProgressCallback progressCallback,
-                       LoadingFailedCallback failedCallback){
+    public AndroidNativeFilesLoader(Activity context,
+                                    LoadingSuccessCallback successCallback,
+                                    LoadingProgressCallback progressCallback,
+                                    LoadingFailedCallback failedCallback){
         // Переменные, с которыми будет работа
         _context = context;
         _downloadManager = (DownloadManager)context.getSystemService(_context.DOWNLOAD_SERVICE);

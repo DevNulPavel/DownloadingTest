@@ -1,4 +1,4 @@
-package com.example.downloadingtest;
+package com.seventeenbullets.android.xgen.downloader;
 
 import java.util.Date;
 import java.util.Calendar;

@@ -1,12 +1,9 @@
 package com.example.downloadingtest;
 
-import android.Manifest;
-import android.content.pm.PackageManager;
 import android.app.Service;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.app.DownloadManager;
-import android.app.DownloadManager.Request;
 import android.app.DownloadManager.Query;
 import android.database.Cursor;
 import android.net.Uri;
@@ -14,17 +11,14 @@ import android.os.IBinder;
 import android.util.Log;
 
 import java.io.File;
-import java.util.ArrayList;
 import java.util.Map;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Vector;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
 
 
-import com.example.downloadingtest.DownloadingBroadcastReceiver;
+import com.seventeenbullets.android.xgen.downloader.LoadingInfo;
+import com.seventeenbullets.android.xgen.downloader.ProgressInfo;
 
 
 public class DownloadingService extends Service {
