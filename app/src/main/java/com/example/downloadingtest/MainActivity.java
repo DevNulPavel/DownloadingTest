@@ -42,7 +42,6 @@ public class MainActivity extends AppCompatActivity {
     private Button _download_button;
     private ProgressBar _progress_bar;
     //DownloadingService _downloadService;
-    FilesLoader _loader = null;
     AtomicBoolean _bound = new AtomicBoolean(false);
 
     /*private ServiceConnection _connection = new ServiceConnection() {
@@ -64,6 +63,9 @@ public class MainActivity extends AppCompatActivity {
     static {
         System.loadLibrary("native-lib");
     }
+
+    public native String stringFromJNI();
+    public native void testNativeRequest();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -89,9 +91,9 @@ public class MainActivity extends AppCompatActivity {
         //  startService(intent); - почему-то все равно вызывается onCreate сервиса
         // bindService(intent, _connection, Context.BIND_AUTO_CREATE);
 
-        _loader = new FilesLoader(this);
+        RequestManager.initialize(this);
 
-        new Thread(new Runnable() {
+        /*new Thread(new Runnable() {
             @Override
             public void run() {
                 while (true){
@@ -100,8 +102,8 @@ public class MainActivity extends AppCompatActivity {
                     }catch (Exception e) {
                     }
 
-                    /*if (_bound.get()){
-                    }*/
+                    //if (_bound.get()){
+                    //}
 
                     final double progress = _loader.getPercentProgressInfo();
 
@@ -113,12 +115,14 @@ public class MainActivity extends AppCompatActivity {
                     });
                 }
             }
-        }).start();
+        }).start();*/
     }
 
     @Override
     public void onDestroy() {
         super.onDestroy();
+        RequestManager.finish();
+
         //unbindService(_connection);
 
         // TODO: Надо ли отключать сервис?
@@ -150,23 +154,6 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        // http://speedtest.tele2.net/
-        // https://speed.hetzner.de/100MB.bin
-        // https://speed.hetzner.de/1GB.bin
-        // https://speed.hetzner.de/10GB.bin
-        // http://speedtest.ftp.otenet.gr/files/test100Mb.db
-        Vector<LoadTask> tasks = new Vector<>();
-        LoadTask task = new LoadTask();
-        task.url = "https://speed.hetzner.de/1GB.bin";
-        task.resultFolder = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS).getAbsolutePath();
-        tasks.add(task);
-
-        _loader.startLoading(tasks);
+        testNativeRequest();
     }
-
-    /**
-     * A native method that is implemented by the 'native-lib' native library,
-     * which is packaged with this application.
-     */
-    public native String stringFromJNI();
 }

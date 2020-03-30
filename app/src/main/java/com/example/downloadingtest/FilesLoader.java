@@ -16,9 +16,6 @@ import android.util.Pair;
 
 import java.util.Timer;
 import java.util.TimerTask;
-import java.nio.channels.FileChannel;
-import java.io.FileOutputStream;
-import java.io.FileInputStream;
 
 import java.io.File;
 import java.util.HashMap;
@@ -33,7 +30,25 @@ public class FilesLoader extends Object {
     private Activity _context = null;
     private DownloadManager _downloadManager = null;
     private HashMap<Long, LoadingInfo> _activeFilesLoading = null;
-    private Timer _timer = null;
+    private Timer _timeoutTimer = null;
+    private Timer _progressTimer = null;
+    private LoadingSuccessCallback _successCallback;
+    private LoadingProgressCallback _progressCallback;
+    private LoadingFailedCallback _failedCallback;
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    public interface LoadingSuccessCallback {
+        void onLoaded(LoadingInfo info);
+    }
+
+    public interface LoadingProgressCallback {
+        void onLoadingPorgress(LoadingInfo info, long totalSize, long loadedSize);
+    }
+
+    public interface LoadingFailedCallback {
+        void onLoadingFailed(LoadingInfo info);
+    }
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -67,25 +82,35 @@ public class FilesLoader extends Object {
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    public FilesLoader(Activity context){
+    public FilesLoader(Activity context,
+                       LoadingSuccessCallback successCallback,
+                       LoadingProgressCallback progressCallback,
+                       LoadingFailedCallback failedCallback){
         // Переменные, с которыми будет работа
         _context = context;
         _downloadManager = (DownloadManager)context.getSystemService(_context.DOWNLOAD_SERVICE);
-        _timer = new Timer();
+        _timeoutTimer = new Timer();
+        _progressTimer = new Timer();
         _activeFilesLoading = new HashMap<Long, LoadingInfo>();
+        _successCallback = successCallback;
+        _progressCallback = progressCallback;
+        _failedCallback = failedCallback;
 
         // Регистрируем получателя широковещательных сообщений
         context.registerReceiver(_loadingFinishedReceiver, new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE));
         context.registerReceiver(_notificationClickedReceiver, new IntentFilter(DownloadManager.ACTION_NOTIFICATION_CLICKED));
 
-        enableTimeoutForLoadingId();
+        enableTimeoutTimerForLoading();
+        enableProgressTimerForLoading();
     }
 
+    // TODO: Вынести в метод, вызываемый руками
     protected void finalize() {
         Log.d(TAG, "Service onDestroy");
 
         // Сброс таймера
-        _timer.cancel();
+        _timeoutTimer.cancel();
+        _progressTimer.cancel();
 
         // Убираем Receiver
         _context.unregisterReceiver(_loadingFinishedReceiver);
@@ -113,6 +138,11 @@ public class FilesLoader extends Object {
                     info.completed = true;
                     // Перемещаем файлик из временной папки в конечную
                     renameTmpFile(info.tmpFilePath, info.resultFolder);
+
+                    // Вызываем коллбек ошибки
+                    if (_successCallback != null){
+                        _successCallback.onLoaded(info);
+                    }
                 }
                 // Произошла ошибка загрузки файла
                 else if (status == DownloadManager.STATUS_FAILED) {
@@ -120,6 +150,12 @@ public class FilesLoader extends Object {
 
                     info.failed = true;
                     _activeFilesLoading.remove(loadingId);
+
+                    // TODO: Причину тоже надо
+                    // Вызываем коллбек ошибки
+                    if (_failedCallback != null){
+                        _failedCallback.onLoadingFailed(info);
+                    }
 
                     switch (reason) {
                         case DownloadManager.ERROR_FILE_ERROR:
@@ -177,8 +213,8 @@ public class FilesLoader extends Object {
         }
 
         // TODO: Thread safe?
-        int bytes_downloaded = 0;
-        int bytes_total = 0;
+        double bytes_downloaded = 0;
+        double bytes_total = 0;
         for (Cursor cursor: cursors){
             cursor.moveToFirst();
             bytes_downloaded += cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR));
@@ -186,7 +222,7 @@ public class FilesLoader extends Object {
             cursor.close();
         }
 
-        double totalProgress = (bytes_downloaded * 100.0) / bytes_total;
+        double totalProgress = bytes_downloaded / bytes_total;
 
         return totalProgress;
     }
@@ -234,7 +270,7 @@ public class FilesLoader extends Object {
                 Environment.getExternalStorageState() == Environment.MEDIA_MOUNTED_READ_ONLY;
     }
 
-    private void enableTimeoutForLoadingId(){
+    private void enableTimeoutTimerForLoading(){
         // Код будет исполняться в главном потоке
         final Runnable code = new Runnable() {
             @Override
@@ -269,7 +305,11 @@ public class FilesLoader extends Object {
                                         removeArray.add(downloadingID);
                                         pair.getValue().failed = true;
 
-                                        // TODO: Process cancel
+                                        // TODO: Причину тоже надо
+                                        // Вызываем коллбек ошибки
+                                        if (_failedCallback != null){
+                                            _failedCallback.onLoadingFailed(pair.getValue());
+                                        }
 
                                         break;
                                     }
@@ -279,7 +319,11 @@ public class FilesLoader extends Object {
                                         removeArray.add(downloadingID);
                                         pair.getValue().failed = true;
 
-                                        // TODO: Process cancel
+                                        // TODO: Причину тоже надо
+                                        // Вызываем коллбек ошибки
+                                        if (_failedCallback != null){
+                                            _failedCallback.onLoadingFailed(pair.getValue());
+                                        }
 
                                         break;
                                     }
@@ -310,12 +354,52 @@ public class FilesLoader extends Object {
         };
 
         // Запускаем таймер, который раз в секунду будет проверять прогресс загрузки
-        _timer.schedule(new TimerTask() {
+        _timeoutTimer.schedule(new TimerTask() {
             @Override
             public void run() {
                 _context.runOnUiThread(code);
             }
-        }, 1000, 1000);
+        }, 1000, 1000); // TODO: Check period
+    }
+
+    private void enableProgressTimerForLoading(){
+        // Код будет исполняться в главном потоке
+        final Runnable code = new Runnable() {
+            @Override
+            public void run() {
+                synchronized (_activeFilesLoading){
+                    Iterator it = _activeFilesLoading.entrySet().iterator();
+                    while (it.hasNext()) {
+                        // TODO: проверить, начинается ли с начала или нет?
+                        Map.Entry<Long, LoadingInfo> pair = (Map.Entry)it.next();
+
+                        Query q = new Query();
+                        q.setFilterById(pair.getKey());
+
+                        // Проверка на hasFirst
+                        // Получаем сколкьо загрузили
+                        final Cursor cursor = _downloadManager.query(q);
+                        cursor.moveToFirst();
+                        long bytes_downloaded = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR));
+                        long bytes_total = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES));
+                        cursor.close();
+
+                        // Вызываем коллбек прогресса
+                        if ((bytes_total != bytes_downloaded) && (_progressCallback != null)){
+                            _progressCallback.onLoadingPorgress(pair.getValue(), bytes_total, bytes_downloaded);
+                        }
+                    }
+                }
+            }
+        };
+
+        // Запускаем таймер, который раз в секунду будет проверять прогресс загрузки
+        _timeoutTimer.schedule(new TimerTask() {
+            @Override
+            public void run() {
+                _context.runOnUiThread(code);
+            }
+        }, 500, 500); // TODO: Check period
     }
 
     private HashMap<String, Pair<Integer, Long>> getActiveLoads() {
@@ -355,42 +439,43 @@ public class FilesLoader extends Object {
         return activeLoads;
     }
 
-    public void startLoading(Vector<LoadTask> tasks) {
+    public long startLoading(LoadTask task) {
         HashMap<String, Pair<Integer, Long>> activeLoads = getActiveLoads();
 
         // Идем по списку закачек
-        for(LoadTask task: tasks){
-            Log.d(TAG, "Service startLoading: " + task.url + " " + task.resultFolder);
+        Log.d(TAG, "Service startLoading: " + task.url + " " + task.resultFolder);
 
-            // Уже активные такие же загрузки - просто создаем информацию о них
-            if (activeLoads.containsKey(task.url)){
-                Pair<Integer, Long> pair = activeLoads.get(task.url);
+        // Уже активные такие же загрузки - просто создаем информацию о них
+        if (activeLoads.containsKey(task.url)){
+            Pair<Integer, Long> pair = activeLoads.get(task.url);
 
-                long downloadingID = pair.first;
-                long totalBytes = pair.second;
+            long downloadingID = pair.first;
+            long totalBytes = pair.second;
 
-                Uri url = Uri.parse(task.url);
-                String filename = url.getLastPathSegment();
+            Uri url = Uri.parse(task.url);
+            String filename = url.getLastPathSegment();
 
-                LoadingInfo info = new LoadingInfo();
-                info.loadingId = downloadingID;
-                info.loadSize = totalBytes;
-                info.tmpFilePath = makeTmpFilePath(filename, task.resultFolder);
-                info.resultFolder = task.resultFolder;
-                info.url = task.url;
-                info.createTime = System.currentTimeMillis();
+            LoadingInfo info = new LoadingInfo();
+            info.loadingId = downloadingID;
+            info.loadSize = totalBytes;
+            info.tmpFilePath = makeTmpFilePath(filename, task.resultFolder);
+            info.resultFolder = task.resultFolder;
+            info.url = task.url;
+            info.createTime = System.currentTimeMillis();
 
-                synchronized (_activeFilesLoading){
-                    _activeFilesLoading.put(downloadingID, info);
-                }
-            }else{
-                // Стартуем загрузку
-                startFileLoading(task);
+            synchronized (_activeFilesLoading){
+                _activeFilesLoading.put(downloadingID, info);
             }
+
+            return downloadingID;
+        }else{
+            // Стартуем загрузку
+            long loadingID = startFileLoading(task);
+            return loadingID;
         }
     }
 
-    private void startFileLoading(LoadTask task){
+    private long startFileLoading(LoadTask task){
         // Получаем URL
         Uri url = Uri.parse(task.url);
 
@@ -426,16 +511,18 @@ public class FilesLoader extends Object {
         synchronized (_activeFilesLoading){
             _activeFilesLoading.put(downloadingID, info);
         }
+
+        return downloadingID;
     }
 
     private String makeTmpFilePath(String path, String resultFolder){
-        String tempfilePath = resultFolder + "/" + path + ".tmp_file";
+        String tempfilePath = resultFolder + "/" + path + ".tmp_andr_file";
         return tempfilePath;
     }
 
     private void renameTmpFile(String tmpFilePath, String resultPath){
         File from = new File(tmpFilePath);
-        File to = new File(tmpFilePath.replaceAll(".tmp_file", ""));
+        File to = new File(tmpFilePath.replaceAll(".tmp_andr_file", ""));
         if(from.exists()) {
             from.renameTo(to);
         }
