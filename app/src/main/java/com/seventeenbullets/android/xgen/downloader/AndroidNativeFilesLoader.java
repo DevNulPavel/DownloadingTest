@@ -137,7 +137,7 @@ public class AndroidNativeFilesLoader extends Object {
                     Log.d(TAG, "Service loadingFinished success: " + loadingId);
                     info.completed = true;
                     // Перемещаем файлик из временной папки в конечную
-                    renameTmpFile(info.tmpFilePath, info.resultFolder);
+                    renameTmpFile(info.tmpFilePath, info.resultFilePath);
 
                     // Вызываем коллбек ошибки
                     if (_successCallback != null){
@@ -443,7 +443,7 @@ public class AndroidNativeFilesLoader extends Object {
         HashMap<String, Pair<Integer, Long>> activeLoads = getActiveLoads();
 
         // Идем по списку закачек
-        Log.d(TAG, "Service startLoading: " + task.url + " " + task.resultFolder);
+        Log.d(TAG, "Service startLoading: " + task.url + " " + task.resultFilePath);
 
         // Уже активные такие же загрузки - просто создаем информацию о них
         if (activeLoads.containsKey(task.url)){
@@ -453,13 +453,13 @@ public class AndroidNativeFilesLoader extends Object {
             long totalBytes = pair.second;
 
             Uri url = Uri.parse(task.url);
-            String filename = url.getLastPathSegment();
+            //String filename = url.getLastPathSegment();
 
             LoadingInfo info = new LoadingInfo();
             info.loadingId = downloadingID;
             info.loadSize = totalBytes;
-            info.tmpFilePath = makeTmpFilePath(filename, task.resultFolder);
-            info.resultFolder = task.resultFolder;
+            info.tmpFilePath = makeTmpFilePath(task.resultFilePath);
+            info.resultFilePath = task.resultFilePath;
             info.url = task.url;
             info.createTime = System.currentTimeMillis();
 
@@ -484,7 +484,7 @@ public class AndroidNativeFilesLoader extends Object {
         //_context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
         //_context.getExternalFilesDir(null)
         // Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-        File file = new File(makeTmpFilePath(url.getLastPathSegment(), task.resultFolder));
+        File file = new File(makeTmpFilePath(task.resultFilePath));
         Log.d(TAG, "Service startLoading: " + file.getAbsolutePath());
 
         Request request = new Request(url)
@@ -504,7 +504,7 @@ public class AndroidNativeFilesLoader extends Object {
         info.loadingId = downloadingID;
         info.loadSize = bytes_total;
         info.tmpFilePath = file.getAbsolutePath();
-        info.resultFolder = task.resultFolder;
+        info.resultFilePath = task.resultFilePath;
         info.url = task.url;
         info.createTime = System.currentTimeMillis();
 
@@ -515,8 +515,8 @@ public class AndroidNativeFilesLoader extends Object {
         return downloadingID;
     }
 
-    private String makeTmpFilePath(String path, String resultFolder){
-        String tempfilePath = resultFolder + "/" + path + ".tmp_andr_file";
+    private String makeTmpFilePath(String path){
+        String tempfilePath = path + ".tmp_andr_file";
         return tempfilePath;
     }
 

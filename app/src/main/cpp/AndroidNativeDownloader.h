@@ -5,16 +5,16 @@
 #include <string>
 #include <functional>
 
-typedef std::vector<uint8_t > DataBuffer;
-typedef std::function<void(long handle, const std::string& responseHeader, std::shared_ptr<DataBuffer> responseData)> SuccessCallback;
-typedef std::function<void(long handle, long httpCode, int errorCode)> FailureCallback;
-typedef std::function<void(long handle, double totalSize, double loadedSize, double, double)> RequestProgressCallback;
+typedef std::vector<int8_t > AndroidNativeDataBuffer;
+typedef std::function<void(long handle)> AndroidNativeSuccessCallback;
+typedef std::function<void(long handle, double totalSize, double loadedSize)> AndroidNativeRequestProgressCallback;
+typedef std::function<void(long handle, long httpCode, int errorCode)> AndroidNativeFailureCallback;
 
 long sendRequest(const std::string& url,
                  const std::string& filePath,
-                 SuccessCallback successCallback,
-                 RequestProgressCallback progressCb,
-                 FailureCallback failureCallback,
+                 AndroidNativeSuccessCallback successCallback,
+                 AndroidNativeRequestProgressCallback progressCb,
+                 AndroidNativeFailureCallback failureCallback,
                  int connectTimeout,
                  int transferTimeout,
                  int speedLimitTimeout);

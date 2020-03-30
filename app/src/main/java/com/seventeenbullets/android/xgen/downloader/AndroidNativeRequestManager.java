@@ -55,7 +55,8 @@ public class AndroidNativeRequestManager extends Object {
 
         LoadTask task = new LoadTask();
         task.url = url;
-        task.resultFolder = _activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS).getAbsolutePath();
+        task.resultFilePath = _activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS).getAbsolutePath() + "/test.png";
+        //task.resultFilePath = path; //
 
         long loadingID = _loader.startLoading(task);
 

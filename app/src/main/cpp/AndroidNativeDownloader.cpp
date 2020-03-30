@@ -8,9 +8,9 @@
 struct AndroidNativeLoadingInfo{
     std::string url;
     std::string filePath;
-    SuccessCallback successCallback;
-    RequestProgressCallback progressCb;
-    FailureCallback failureCallback;
+    AndroidNativeSuccessCallback successCallback;
+    AndroidNativeRequestProgressCallback progressCb;
+    AndroidNativeFailureCallback failureCallback;
     int connectTimeout;
     int transferTimeout;
     int speedLimitTimeout;
@@ -70,7 +70,7 @@ Java_com_seventeenbullets_android_xgen_downloader_AndroidNativeRequestManager_lo
     if(it != _activeLoads.end()){
         // Коллбек завершения
         if(it->second.successCallback){
-            it->second.successCallback(loadingHandle, "", nullptr);
+            it->second.successCallback(loadingHandle);
         }
 
         // Удаляем из активных
@@ -90,7 +90,7 @@ Java_com_seventeenbullets_android_xgen_downloader_AndroidNativeRequestManager_lo
 
         // Коллбек прогресса
         if(it->second.progressCb){
-            it->second.progressCb(loadingHandle, static_cast<double>(totalSize), static_cast<double>(loadedSize), 0.0, 0.0);
+            it->second.progressCb(loadingHandle, static_cast<double>(totalSize), static_cast<double>(loadedSize));
         }
     }
 }
@@ -114,9 +114,9 @@ Java_com_seventeenbullets_android_xgen_downloader_AndroidNativeRequestManager_lo
 
 long sendRequest(const std::string& url,
                  const std::string& filePath,
-                 SuccessCallback successCallback,
-                 RequestProgressCallback progressCb,
-                 FailureCallback failureCallback,
+                 AndroidNativeSuccessCallback successCallback,
+                 AndroidNativeRequestProgressCallback progressCb,
+                 AndroidNativeFailureCallback failureCallback,
                  int connectTimeout,
                  int transferTimeout,
                  int speedLimitTimeout){
@@ -150,13 +150,13 @@ long sendRequest(const std::string& url,
 
 
 void testNativeRequest() {
-    SuccessCallback successCallback = [](long handle, const std::string&, std::shared_ptr<DataBuffer>){
+    AndroidNativeSuccessCallback successCallback = [](long handle){
         printf("Loaded");
     };
-    RequestProgressCallback progressCallback = [](long handle, double totalSize, double loadedSize, double, double){
+    AndroidNativeRequestProgressCallback progressCallback = [](long handle, double totalSize, double loadedSize){
         printf("Progress: %d / %d", loadedSize, totalSize);
     };
-    FailureCallback failCallback = [](long handle, long httpCode, int errorCode){
+    AndroidNativeFailureCallback failCallback = [](long handle, long httpCode, int errorCode){
         printf("Failed");
     };
 
@@ -165,7 +165,8 @@ void testNativeRequest() {
     // https://speed.hetzner.de/1GB.bin
     // https://speed.hetzner.de/10GB.bin
     // http://speedtest.ftp.otenet.gr/files/test100Mb.db
-    sendRequest("https://speed.hetzner.de/1GB.bin", "",
+    sendRequest("http://pi2.17bullets.com/images/event/icon/eventicon_pvp_new.png?10250_",
+                "/data/user/0/com.example.downloadingtest/files/download/eventicon_pvp_new.png",
                 successCallback, progressCallback, failCallback,
                 0, 0, 0);
 }

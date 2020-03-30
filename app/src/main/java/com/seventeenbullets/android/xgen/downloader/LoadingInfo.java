@@ -11,7 +11,7 @@ public class LoadingInfo {
     public long loadSize;
     public String url;
     public String tmpFilePath;
-    public String resultFolder;
+    public String resultFilePath;
     public long createTime;
     public boolean completed;
     public boolean failed;
