@@ -3,6 +3,8 @@ package com.seventeenbullets.android.xgen.downloader;
 import android.app.Activity;
 import android.os.Environment;
 
+import java.io.File;
+
 
 public class AndroidNativeRequestManager extends Object {
     private static Activity _activity = null;
@@ -55,8 +57,8 @@ public class AndroidNativeRequestManager extends Object {
 
         LoadTask task = new LoadTask();
         task.url = url;
-        task.resultFilePath = _activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS).getAbsolutePath() + "/test.png";
-        //task.resultFilePath = path; //
+        //task.resultFilePath = _activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS).getAbsolutePath() + "/test.png";
+        task.resultFilePath = path;
 
         long loadingID = _loader.startLoading(task);
 

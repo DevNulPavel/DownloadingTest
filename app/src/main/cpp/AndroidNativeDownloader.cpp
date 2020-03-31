@@ -40,7 +40,7 @@ extern "C" jint JNI_OnLoad (JavaVM* vm, void* reserved) {
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 // Инициализация нативной части, cтатический метод, поэтому второй параметр - это класс
-extern "C" JNIEXPORT void JNICALL
+extern "C" void __attribute__((visibility("default")))
 Java_com_seventeenbullets_android_xgen_downloader_AndroidNativeRequestManager_initializeNative(JNIEnv *env, jclass /* this */) {
     jclass tmp = _javaEnv->FindClass("com/seventeenbullets/android/xgen/downloader/AndroidNativeRequestManager");
     _requestManagerClass = (jclass)_javaEnv->NewGlobalRef(tmp);
@@ -56,13 +56,13 @@ Java_com_seventeenbullets_android_xgen_downloader_AndroidNativeRequestManager_in
 }
 
 // Разрушение нативной части
-extern "C" JNIEXPORT void JNICALL
+extern "C" void __attribute__((visibility("default")))
 Java_com_seventeenbullets_android_xgen_downloader_AndroidNativeRequestManager_destroyNative(JNIEnv *env, jclass /* this */) {
     // TODO:
 }
 
 // Загрузка завершена
-extern "C" JNIEXPORT void JNICALL
+extern "C" void __attribute__((visibility("default")))
 Java_com_seventeenbullets_android_xgen_downloader_AndroidNativeRequestManager_loadingSuccess(JNIEnv *env, jclass /* this */, jlong loadingHandle) {
     std::unique_lock<std::mutex> lock(_loadsMutex);
 
@@ -79,7 +79,7 @@ Java_com_seventeenbullets_android_xgen_downloader_AndroidNativeRequestManager_lo
 }
 
 // Прогресс загрузки
-extern "C" JNIEXPORT void JNICALL
+extern "C" void __attribute__((visibility("default")))
 Java_com_seventeenbullets_android_xgen_downloader_AndroidNativeRequestManager_loadingProgress(JNIEnv *env, jclass /* this */, jlong loadingHandle,
                                                                 jlong totalSize, jlong loadedSize) {
 
@@ -96,7 +96,7 @@ Java_com_seventeenbullets_android_xgen_downloader_AndroidNativeRequestManager_lo
 }
 
 // Загрузка c ошибкой
-extern "C" JNIEXPORT void JNICALL
+extern "C" void __attribute__((visibility("default")))
 Java_com_seventeenbullets_android_xgen_downloader_AndroidNativeRequestManager_loadingFailed(JNIEnv *env, jclass /* this */, jlong loadingHandle) {
     std::lock_guard<std::mutex> lock(_loadsMutex);
 
@@ -120,7 +120,6 @@ long sendRequest(const std::string& url,
                  int connectTimeout,
                  int transferTimeout,
                  int speedLimitTimeout){
-    std::lock_guard<std::mutex> lock(_loadsMutex);
 
     AndroidNativeLoadingInfo info{
             url,
@@ -141,6 +140,7 @@ long sendRequest(const std::string& url,
     _javaEnv->DeleteLocalRef(urlJava);
     _javaEnv->DeleteLocalRef(filePathJava);
 
+    std::lock_guard<std::mutex> lock(_loadsMutex);
     _activeLoads[loadingID] = std::move(info);
 
     printf("Loading started");

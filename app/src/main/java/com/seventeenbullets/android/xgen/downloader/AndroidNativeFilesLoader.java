@@ -13,6 +13,14 @@ import android.net.Uri;
 import android.os.Environment;
 import android.util.Log;
 import android.util.Pair;
+//import java.nio.channels.FileChannel;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.FileOutputStream;
+import java.io.FileInputStream;
+//import java.nio.file.CopyOption;
+//import java.nio.file.StandardCopyOption;
+//import java.nio.file.Files;
 
 import java.util.Timer;
 import java.util.TimerTask;
@@ -134,15 +142,20 @@ public class AndroidNativeFilesLoader extends Object {
 
                 // Успешно загрузили файлик
                 if (status == DownloadManager.STATUS_SUCCESSFUL) {
-                    Log.d(TAG, "Service loadingFinished success: " + loadingId);
+                    Log.d(TAG, "Service loadingFinished success 1: " + loadingId);
                     info.completed = true;
+
                     // Перемещаем файлик из временной папки в конечную
                     renameTmpFile(info.tmpFilePath, info.resultFilePath);
+
+                    Log.d(TAG, "Service loadingFinished success 2: " + loadingId);
 
                     // Вызываем коллбек ошибки
                     if (_successCallback != null){
                         _successCallback.onLoaded(info);
                     }
+
+                    Log.d(TAG, "Service loadingFinished success 3: " + loadingId);
                 }
                 // Произошла ошибка загрузки файла
                 else if (status == DownloadManager.STATUS_FAILED) {
@@ -285,6 +298,8 @@ public class AndroidNativeFilesLoader extends Object {
                         long downloadingID = pair.getValue().loadingId;
                         long createDate = pair.getValue().createTime;
 
+                        //Log.d(TAG, "Check timeout for: " + downloadingID);
+
                         long TIMEOUT = 20000; // 20 Sec
 
                         long curTime = System.currentTimeMillis();
@@ -373,8 +388,12 @@ public class AndroidNativeFilesLoader extends Object {
                         // TODO: проверить, начинается ли с начала или нет?
                         Map.Entry<Long, LoadingInfo> pair = (Map.Entry)it.next();
 
+                        //Log.d(TAG, "Check progress for 1: " + pair.getKey());
+
                         Query q = new Query();
                         q.setFilterById(pair.getKey());
+
+                        //Log.d(TAG, "Check progress for 2: " + pair.getKey());
 
                         // Проверка на hasFirst
                         // Получаем сколкьо загрузили
@@ -384,10 +403,14 @@ public class AndroidNativeFilesLoader extends Object {
                         long bytes_total = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES));
                         cursor.close();
 
+                        //Log.d(TAG, "Check progress for 3: " + pair.getKey());
+
                         // Вызываем коллбек прогресса
                         if ((bytes_total != bytes_downloaded) && (_progressCallback != null)){
                             _progressCallback.onLoadingPorgress(pair.getValue(), bytes_total, bytes_downloaded);
                         }
+
+                        //Log.d(TAG, "Check progress for 4: " + pair.getKey());
                     }
                 }
             }
@@ -447,13 +470,17 @@ public class AndroidNativeFilesLoader extends Object {
 
         // Уже активные такие же загрузки - просто создаем информацию о них
         if (activeLoads.containsKey(task.url)){
+            Log.d(TAG, "Service startLoading -1: " + task.url + " " + task.resultFilePath);
             Pair<Integer, Long> pair = activeLoads.get(task.url);
 
             long downloadingID = pair.first;
             long totalBytes = pair.second;
 
+            Log.d(TAG, "Service startLoading -0.5: " + task.url + " " + task.resultFilePath);
             Uri url = Uri.parse(task.url);
             //String filename = url.getLastPathSegment();
+
+            Log.d(TAG, "Service startLoading 0: " + task.url + " " + task.resultFilePath);
 
             LoadingInfo info = new LoadingInfo();
             info.loadingId = downloadingID;
@@ -463,14 +490,23 @@ public class AndroidNativeFilesLoader extends Object {
             info.url = task.url;
             info.createTime = System.currentTimeMillis();
 
+            Log.d(TAG, "Service startLoading 1: " + task.url + " " + task.resultFilePath);
+
             synchronized (_activeFilesLoading){
                 _activeFilesLoading.put(downloadingID, info);
             }
 
+            Log.d(TAG, "Service startLoading 2: " + task.url + " " + task.resultFilePath);
+
             return downloadingID;
         }else{
+            Log.d(TAG, "Service startLoading 3: " + task.url + " " + task.resultFilePath);
+
             // Стартуем загрузку
             long loadingID = startFileLoading(task);
+
+            Log.d(TAG, "Service startLoading 4: " + task.url + " " + task.resultFilePath);
+
             return loadingID;
         }
     }
@@ -495,40 +531,107 @@ public class AndroidNativeFilesLoader extends Object {
                 .setAllowedOverMetered(true) // По мобильной сети
                 .setAllowedOverRoaming(true);
 
-        // Инициируем загрузку
-        final Long downloadingID = _downloadManager.enqueue(request);// enqueue puts the download request in the queue.
-
-        long bytes_total = getLoadingTotalSize(downloadingID);
-
-        LoadingInfo info = new LoadingInfo();
-        info.loadingId = downloadingID;
-        info.loadSize = bytes_total;
-        info.tmpFilePath = file.getAbsolutePath();
-        info.resultFilePath = task.resultFilePath;
-        info.url = task.url;
-        info.createTime = System.currentTimeMillis();
-
         synchronized (_activeFilesLoading){
-            _activeFilesLoading.put(downloadingID, info);
+            // Инициируем загрузку
+            long tempDownloadingID = -1;
+            try {
+                tempDownloadingID = _downloadManager.enqueue(request);// enqueue puts the download request in the queue.
+            }catch (Exception e){
+                Log.d(TAG, "Service startLoading: " + e.getMessage());
+            }finally {
+            }
+
+            if (tempDownloadingID > 0){
+                final Long downloadingID = tempDownloadingID;
+
+                long bytes_total = getLoadingTotalSize(downloadingID);
+
+                LoadingInfo info = new LoadingInfo();
+                info.loadingId = downloadingID;
+                info.loadSize = bytes_total;
+                info.tmpFilePath = file.getAbsolutePath();
+                info.resultFilePath = task.resultFilePath;
+                info.url = task.url;
+                info.createTime = System.currentTimeMillis();
+
+                _activeFilesLoading.put(downloadingID, info);
+
+                return downloadingID;
+            }
         }
 
-        return downloadingID;
+        return -1;
     }
 
     private String makeTmpFilePath(String path){
-        String tempfilePath = path + ".tmp_andr_file";
+        File resultPath = new File(path);
+        String filename = resultPath.getName();
+        String tempfilePath = _context.getExternalCacheDir().getAbsolutePath() + "/" + filename + ".tmp_andr_file";
+
         return tempfilePath;
+    }
+
+    private void moveFile(String inputPath, String outputPath) {
+        InputStream in = null;
+        OutputStream out = null;
+        try {
+
+            //create output directory if it doesn't exist
+            File dir = new File(new File(outputPath).getParent());
+            if (!dir.exists()) {
+                dir.mkdirs();
+            }
+
+            in = new FileInputStream(inputPath);
+            out = new FileOutputStream(outputPath);
+
+            byte[] buffer = new byte[1024];
+            int read;
+            while ((read = in.read(buffer)) != -1) {
+                out.write(buffer, 0, read);
+            }
+            in.close();
+            in = null;
+
+            // write the output file
+            out.flush();
+            out.close();
+            out = null;
+
+            // delete the original file
+            new File(inputPath).delete();
+        }
+        catch (Exception e) {
+            Log.e(TAG, "File move failed: " + e.getMessage());
+        }
+
     }
 
     private void renameTmpFile(String tmpFilePath, String resultPath){
         File from = new File(tmpFilePath);
-        File to = new File(tmpFilePath.replaceAll(".tmp_andr_file", ""));
+        //File to = new File(tmpFilePath.replaceAll(".tmp_andr_file", ""));
+        //File to = new File(resultPath);
         if(from.exists()) {
-            from.renameTo(to);
+            /*try{
+                Files.move(from.toPath(), to.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            }catch (Exception e){
+                Log.d(TAG, "File move ERROR: " + tmpFilePath + " -> " + resultPath);
+            }*/
+
+            Log.d(TAG, "File move 1: " + tmpFilePath + " -> " + resultPath);
+            moveFile(tmpFilePath, resultPath);
+            Log.d(TAG, "File move 2: " + tmpFilePath + " -> " + resultPath);
+
+            /*boolean success = from.renameTo(to);
+            if (success){
+                Log.d(TAG, "File move success: " + tmpFilePath + " -> " + resultPath);
+            }else{
+                Log.d(TAG, "File move ERROR: " + tmpFilePath + " -> " + resultPath);
+            }*/
         }
 
         /*File oldFile = new File(tmpFilePath);
-        File newFile = new File(resultPath, oldFile.getName());
+        File newFile = new File(resultPath);
         FileChannel outputChannel = null;
         FileChannel inputChannel = null;
         try {
@@ -538,6 +641,7 @@ public class AndroidNativeFilesLoader extends Object {
             inputChannel.close();
             oldFile.delete();
         }catch (Exception e){
+            Log.d(TAG, "File move error: " + e.getMessage());
         } finally {
             try {
                 if (inputChannel != null) {
