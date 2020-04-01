@@ -35,11 +35,11 @@ import java.util.Vector;
 public class AndroidNativeFilesLoader extends Object {
     final private String TAG = "DOWNLOAD_TAG";
 
-    private Activity _context = null;
-    private DownloadManager _downloadManager = null;
-    private HashMap<Long, LoadingInfo> _activeFilesLoading = null;
-    private Timer _timeoutTimer = null;
-    private Timer _progressTimer = null;
+    private Activity _context;
+    private DownloadManager _downloadManager;
+    private HashMap<Long, LoadingInfo> _activeFilesLoading;
+    private Timer _timeoutTimer;
+    private Timer _progressTimer;
     private LoadingSuccessCallback _successCallback;
     private LoadingProgressCallback _progressCallback;
     private LoadingFailedCallback _failedCallback;
@@ -125,9 +125,16 @@ public class AndroidNativeFilesLoader extends Object {
         _context.unregisterReceiver(_notificationClickedReceiver);
     }
 
+    ////////////////////////////////////////////////////////////////////////////////////////////////////
+
     private void onLoadingFinished(long loadingId){
         Log.d(TAG, "Service loadingFinished: " + loadingId);
         synchronized (_activeFilesLoading){
+            if(_activeFilesLoading.containsKey(loadingId) == false){
+                Log.d(TAG, "Service loadingFinished success 0: " + loadingId);
+                return;
+            }
+
             Cursor cursor = _downloadManager.query(new Query().setFilterById(loadingId));
 
             if (cursor.moveToFirst()) {
@@ -139,30 +146,32 @@ public class AndroidNativeFilesLoader extends Object {
                 int status = cursor.getInt(idStatusIndex);
 
                 LoadingInfo info = _activeFilesLoading.get(loadingId);
+                _activeFilesLoading.remove(loadingId);
 
                 // Успешно загрузили файлик
                 if (status == DownloadManager.STATUS_SUCCESSFUL) {
                     Log.d(TAG, "Service loadingFinished success 1: " + loadingId);
                     info.completed = true;
 
-                    // Перемещаем файлик из временной папки в конечную
-                    renameTmpFile(info.tmpFilePath, info.resultFilePath);
-
                     Log.d(TAG, "Service loadingFinished success 2: " + loadingId);
+
+                    // Перемещаем файлик из временной папки в конечную
+                    moveFile(info.tmpFilePath, info.resultFilePath);
+
+                    Log.d(TAG, "Service loadingFinished success 3: " + loadingId);
 
                     // Вызываем коллбек ошибки
                     if (_successCallback != null){
                         _successCallback.onLoaded(info);
                     }
 
-                    Log.d(TAG, "Service loadingFinished success 3: " + loadingId);
+                    Log.d(TAG, "Service loadingFinished success 4: " + loadingId);
                 }
                 // Произошла ошибка загрузки файла
                 else if (status == DownloadManager.STATUS_FAILED) {
                     int reason = cursor.getInt(idStatusIndex);
 
                     info.failed = true;
-                    _activeFilesLoading.remove(loadingId);
 
                     // TODO: Причину тоже надо
                     // Вызываем коллбек ошибки
@@ -208,80 +217,7 @@ public class AndroidNativeFilesLoader extends Object {
         }
     }
 
-    public double getPercentProgressInfo(){
-        Vector<Cursor> cursors = new Vector<Cursor>();
-
-        synchronized (_activeFilesLoading){
-            Iterator it = _activeFilesLoading.entrySet().iterator();
-            while (it.hasNext()) {
-                Map.Entry<Long, LoadingInfo> pair = (Map.Entry)it.next();
-
-                Query q = new Query();
-                q.setFilterById(pair.getKey());
-
-                final Cursor cursor = _downloadManager.query(q);
-                cursors.add(cursor);
-
-            }
-        }
-
-        // TODO: Thread safe?
-        double bytes_downloaded = 0;
-        double bytes_total = 0;
-        for (Cursor cursor: cursors){
-            cursor.moveToFirst();
-            bytes_downloaded += cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR));
-            bytes_total += cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES));
-            cursor.close();
-        }
-
-        double totalProgress = bytes_downloaded / bytes_total;
-
-        return totalProgress;
-    }
-
-    public Vector<ProgressInfo> getFilesProgressInfo(){
-        Vector<ProgressInfo> result = new Vector<ProgressInfo>();
-
-        synchronized (_activeFilesLoading){
-            Iterator it = _activeFilesLoading.entrySet().iterator();
-            while (it.hasNext()) {
-                Map.Entry<Long, LoadingInfo> pair = (Map.Entry)it.next();
-
-                Query q = new Query();
-                q.setFilterById(pair.getKey());
-
-                final Cursor cursor = _downloadManager.query(q);
-
-                cursor.moveToFirst();
-                long bytes_downloaded = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR));
-                long bytes_total = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES));
-                cursor.close();
-
-                ProgressInfo info = new ProgressInfo();
-                //info.file = pair.getValue().file;
-                info.url = pair.getValue().url;
-                info.totalSize = bytes_total;
-                info.finishedSize =  bytes_downloaded;
-
-                result.add(info);
-            }
-        }
-
-        return result;
-    }
-
-    // Checks if a volume containing external storage is available
-    // for read and write.
-    private boolean isExternalStorageWritable() {
-        return Environment.getExternalStorageState() == Environment.MEDIA_MOUNTED;
-    }
-
-    // Checks if a volume containing external storage is available to at least read.
-    private boolean isExternalStorageReadable() {
-        return Environment.getExternalStorageState() == Environment.MEDIA_MOUNTED ||
-                Environment.getExternalStorageState() == Environment.MEDIA_MOUNTED_READ_ONLY;
-    }
+    ////////////////////////////////////////////////////////////////////////////////////////////////////
 
     private void enableTimeoutTimerForLoading(){
         // Код будет исполняться в главном потоке
@@ -398,19 +334,21 @@ public class AndroidNativeFilesLoader extends Object {
                         // Проверка на hasFirst
                         // Получаем сколкьо загрузили
                         final Cursor cursor = _downloadManager.query(q);
-                        cursor.moveToFirst();
-                        long bytes_downloaded = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR));
-                        long bytes_total = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES));
-                        cursor.close();
+                        if (cursor.moveToFirst()){
+                            // Сколько байт загружено
+                            long bytes_downloaded = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR));
+                            long bytes_total = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES));
+                            cursor.close();
 
-                        //Log.d(TAG, "Check progress for 3: " + pair.getKey());
+                            //Log.d(TAG, "Check progress for 3: " + pair.getKey());
 
-                        // Вызываем коллбек прогресса
-                        if ((bytes_total != bytes_downloaded) && (_progressCallback != null)){
-                            _progressCallback.onLoadingPorgress(pair.getValue(), bytes_total, bytes_downloaded);
+                            // Вызываем коллбек прогресса
+                            if ((bytes_total != bytes_downloaded) && (_progressCallback != null)){
+                                _progressCallback.onLoadingPorgress(pair.getValue(), bytes_total, bytes_downloaded);
+                            }
+
+                            //Log.d(TAG, "Check progress for 4: " + pair.getKey());
                         }
-
-                        //Log.d(TAG, "Check progress for 4: " + pair.getKey());
                     }
                 }
             }
@@ -425,22 +363,26 @@ public class AndroidNativeFilesLoader extends Object {
         }, 500, 500); // TODO: Check period
     }
 
+    ////////////////////////////////////////////////////////////////////////////////////////////////////
+
     private HashMap<String, Pair<Integer, Long>> getActiveLoads() {
         HashMap<String, Pair<Integer, Long>> activeLoads = new HashMap<>();
         {
-            int statuses =  DownloadManager.STATUS_FAILED |
-                    DownloadManager.STATUS_PAUSED |
-                    DownloadManager.STATUS_PENDING |
-                    DownloadManager.STATUS_RUNNING;
+            int statuses =  DownloadManager.STATUS_PAUSED |
+                            DownloadManager.STATUS_PENDING |
+                            DownloadManager.STATUS_RUNNING;
+
+            // TODO: Надо ли отслеживать STATUS_FAILED
+            //DownloadManager.STATUS_FAILED |
             //DownloadManager.STATUS_SUCCESSFUL;
             Query q = new Query().setFilterByStatus(statuses);
 
             Cursor cursor = _downloadManager.query(q);
             int idIndex = cursor.getColumnIndex(DownloadManager.COLUMN_ID);
             int idStatus = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS);
-            //int idFilename = cursor.getColumnIndex(DownloadManager.COLUMN_LOCAL_FILENAME);
             int idUri = cursor.getColumnIndex(DownloadManager.COLUMN_URI);
             int idTotalBytes = cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES);
+            //int idFilename = cursor.getColumnIndex(DownloadManager.COLUMN_LOCAL_FILENAME);
 
             boolean hasFirst = cursor.moveToFirst();
             if (hasFirst) {
@@ -468,7 +410,7 @@ public class AndroidNativeFilesLoader extends Object {
         // Идем по списку закачек
         Log.d(TAG, "Service startLoading: " + task.url + " " + task.resultFilePath);
 
-        // Уже активные такие же загрузки - просто создаем информацию о них
+        // Уже есть активные такие же загрузки - просто создаем информацию о них
         if (activeLoads.containsKey(task.url)){
             Log.d(TAG, "Service startLoading -1: " + task.url + " " + task.resultFilePath);
             Pair<Integer, Long> pair = activeLoads.get(task.url);
@@ -477,7 +419,7 @@ public class AndroidNativeFilesLoader extends Object {
             long totalBytes = pair.second;
 
             Log.d(TAG, "Service startLoading -0.5: " + task.url + " " + task.resultFilePath);
-            Uri url = Uri.parse(task.url);
+            //Uri url = Uri.parse(task.url);
             //String filename = url.getLastPathSegment();
 
             Log.d(TAG, "Service startLoading 0: " + task.url + " " + task.resultFilePath);
@@ -511,24 +453,33 @@ public class AndroidNativeFilesLoader extends Object {
         }
     }
 
+    private long getLoadingTotalSize(long loadingId){
+        final Cursor cursor = _downloadManager.query(new Query().setFilterById(loadingId));
+        cursor.moveToFirst();
+        int bytes_total = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES));
+        cursor.close();
+        return bytes_total;
+    }
+
     private long startFileLoading(LoadTask task){
         // Получаем URL
         Uri url = Uri.parse(task.url);
 
         // TODO: Проверка, что файлик уже есть
         // Выходной файлик
-        //_context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
-        //_context.getExternalFilesDir(null)
-        // Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        //      _context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+        //      _context.getExternalFilesDir(null)
+        //      Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
         File file = new File(makeTmpFilePath(task.resultFilePath));
         Log.d(TAG, "Service startLoading: " + file.getAbsolutePath());
 
+        // Формируем запрос
         Request request = new Request(url)
                 .setTitle("Downloading name")
-                .setDescription("Downloading description")  // Description of the Download Notification
+                .setDescription("Downloading description")
                 .setNotificationVisibility(Request.VISIBILITY_VISIBLE)
                 .setDestinationUri(Uri.fromFile(file))
-                .setAllowedOverMetered(true) // По мобильной сети
+                .setAllowedOverMetered(true)
                 .setAllowedOverRoaming(true);
 
         synchronized (_activeFilesLoading){
@@ -571,56 +522,46 @@ public class AndroidNativeFilesLoader extends Object {
         return tempfilePath;
     }
 
+    // TODO: Более оптимальный вариант перемещения данных из одного места в другое
     private void moveFile(String inputPath, String outputPath) {
-        InputStream in = null;
-        OutputStream out = null;
-        try {
-
-            //create output directory if it doesn't exist
-            File dir = new File(new File(outputPath).getParent());
-            if (!dir.exists()) {
-                dir.mkdirs();
-            }
-
-            in = new FileInputStream(inputPath);
-            out = new FileOutputStream(outputPath);
-
-            byte[] buffer = new byte[1024];
-            int read;
-            while ((read = in.read(buffer)) != -1) {
-                out.write(buffer, 0, read);
-            }
-            in.close();
-            in = null;
-
-            // write the output file
-            out.flush();
-            out.close();
-            out = null;
-
-            // delete the original file
-            new File(inputPath).delete();
-        }
-        catch (Exception e) {
-            Log.e(TAG, "File move failed: " + e.getMessage());
-        }
-
-    }
-
-    private void renameTmpFile(String tmpFilePath, String resultPath){
-        File from = new File(tmpFilePath);
-        //File to = new File(tmpFilePath.replaceAll(".tmp_andr_file", ""));
-        //File to = new File(resultPath);
+        File from = new File(inputPath);
         if(from.exists()) {
-            /*try{
-                Files.move(from.toPath(), to.toPath(), StandardCopyOption.REPLACE_EXISTING);
-            }catch (Exception e){
-                Log.d(TAG, "File move ERROR: " + tmpFilePath + " -> " + resultPath);
-            }*/
+            Log.d(TAG, "File move 1: " + inputPath + " -> " + outputPath);
 
-            Log.d(TAG, "File move 1: " + tmpFilePath + " -> " + resultPath);
-            moveFile(tmpFilePath, resultPath);
-            Log.d(TAG, "File move 2: " + tmpFilePath + " -> " + resultPath);
+            InputStream in = null;
+            OutputStream out = null;
+            try {
+
+                //create output directory if it doesn't exist
+                File dir = new File(new File(outputPath).getParent());
+                if (!dir.exists()) {
+                    dir.mkdirs();
+                }
+
+                in = new FileInputStream(inputPath);
+                out = new FileOutputStream(outputPath);
+
+                byte[] buffer = new byte[1024];
+                int read;
+                while ((read = in.read(buffer)) != -1) {
+                    out.write(buffer, 0, read);
+                }
+                in.close();
+                in = null;
+
+                // write the output file
+                out.flush();
+                out.close();
+                out = null;
+
+                // delete the original file
+                new File(inputPath).delete();
+            }
+            catch (Exception e) {
+                Log.e(TAG, "File move failed: " + e.getMessage());
+            }
+
+            Log.d(TAG, "File move 2: " + inputPath + " -> " + outputPath);
 
             /*boolean success = from.renameTo(to);
             if (success){
@@ -630,7 +571,28 @@ public class AndroidNativeFilesLoader extends Object {
             }*/
         }
 
-        /*File oldFile = new File(tmpFilePath);
+    }
+
+    /*private void renameTmpFile(String tmpFilePath, String resultPath){
+        File from = new File(tmpFilePath);
+        //File to = new File(tmpFilePath.replaceAll(".tmp_andr_file", ""));
+        //File to = new File(resultPath);
+        if(from.exists()) {
+            try{
+                Files.move(from.toPath(), to.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            }catch (Exception e){
+                Log.d(TAG, "File move ERROR: " + tmpFilePath + " -> " + resultPath);
+            }
+
+            boolean success = from.renameTo(to);
+            if (success){
+                Log.d(TAG, "File move success: " + tmpFilePath + " -> " + resultPath);
+            }else{
+                Log.d(TAG, "File move ERROR: " + tmpFilePath + " -> " + resultPath);
+            }
+        }
+
+        File oldFile = new File(tmpFilePath);
         File newFile = new File(resultPath);
         FileChannel outputChannel = null;
         FileChannel inputChannel = null;
@@ -652,14 +614,72 @@ public class AndroidNativeFilesLoader extends Object {
                 }
             }catch (Exception e){
             }
-        }*/
-    }
+        }
+    }*/
 
-    private long getLoadingTotalSize(long loadingId){
-        final Cursor cursor = _downloadManager.query(new Query().setFilterById(loadingId));
-        cursor.moveToFirst();
-        int bytes_total = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES));
-        cursor.close();
-        return bytes_total;
-    }
+    /*public double getPercentProgressInfo(){
+        Vector<Cursor> cursors = new Vector<Cursor>();
+        synchronized (_activeFilesLoading){
+            Iterator it = _activeFilesLoading.entrySet().iterator();
+            while (it.hasNext()) {
+                Map.Entry<Long, LoadingInfo> pair = (Map.Entry)it.next();
+
+                Query q = new Query();
+                q.setFilterById(pair.getKey());
+
+                final Cursor cursor = _downloadManager.query(q);
+                cursors.add(cursor);
+
+            }
+        }
+        // TODO: Thread safe?
+        double bytes_downloaded = 0;
+        double bytes_total = 0;
+        for (Cursor cursor: cursors){
+            cursor.moveToFirst();
+            bytes_downloaded += cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR));
+            bytes_total += cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES));
+            cursor.close();
+        }
+        double totalProgress = bytes_downloaded / bytes_total;
+        return totalProgress;
+    }*/
+
+    /*public Vector<ProgressInfo> getFilesProgressInfo(){
+        Vector<ProgressInfo> result = new Vector<ProgressInfo>();
+        synchronized (_activeFilesLoading){
+            Iterator it = _activeFilesLoading.entrySet().iterator();
+            while (it.hasNext()) {
+                Map.Entry<Long, LoadingInfo> pair = (Map.Entry)it.next();
+
+                Query q = new Query();
+                q.setFilterById(pair.getKey());
+
+                final Cursor cursor = _downloadManager.query(q);
+
+                cursor.moveToFirst();
+                long bytes_downloaded = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR));
+                long bytes_total = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES));
+                cursor.close();
+
+                ProgressInfo info = new ProgressInfo();
+                //info.file = pair.getValue().file;
+                info.url = pair.getValue().url;
+                info.totalSize = bytes_total;
+                info.finishedSize =  bytes_downloaded;
+
+                result.add(info);
+            }
+        }
+        return result;
+    }*/
+
+    /*private boolean isExternalStorageWritable() {
+        return Environment.getExternalStorageState() == Environment.MEDIA_MOUNTED;
+    }*/
+
+    /*private boolean isExternalStorageReadable() {
+        return Environment.getExternalStorageState() == Environment.MEDIA_MOUNTED ||
+                Environment.getExternalStorageState() == Environment.MEDIA_MOUNTED_READ_ONLY;
+    }*/
 }
