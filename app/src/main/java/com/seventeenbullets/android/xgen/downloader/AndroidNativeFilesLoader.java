@@ -156,7 +156,8 @@ public class AndroidNativeFilesLoader extends Object {
                 // Успешно загрузили файлик
                 if (status == DownloadManager.STATUS_SUCCESSFUL) {
                     // Проверка хэша
-                    if (info.resultHash != null && info.resultHash.isEmpty() == false){
+                    // TODO: Сейчас отключено
+                    if (false && (info.resultHash != null) && (info.resultHash.isEmpty() == false)){
                         String curHash = md5(info.tmpFilePath);
                         if (curHash.equals(info.resultFilePath)){
                             Log.d(TAG, "Service loadingFinished success 1: hash check SUCCESS " + loadingId);
@@ -251,10 +252,10 @@ public class AndroidNativeFilesLoader extends Object {
         final Runnable code = new Runnable() {
             @Override
             public void run() {
-                // Список для удаления
-                Vector<Long> removeArray = new Vector<>();
-
                 synchronized (_activeFilesLoading) {
+                    // Список для удаления
+                    Vector<Long> removeArray = new Vector<>();
+
                     Iterator it = _activeFilesLoading.entrySet().iterator();
                     while (it.hasNext()) {
                         Map.Entry<Long, LoadingInfo> pair = (Map.Entry) it.next();
@@ -387,7 +388,7 @@ public class AndroidNativeFilesLoader extends Object {
             public void run() {
                 _context.runOnUiThread(code);
             }
-        }, 500, 500); // TODO: Check period
+        }, 250, 250); // TODO: Check period
     }
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////
