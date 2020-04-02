@@ -15,4 +15,5 @@ public class LoadingInfo {
     public long createTime;
     public boolean completed;
     public boolean failed;
+    public String resultHash;
 }

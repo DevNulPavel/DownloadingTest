@@ -17,7 +17,7 @@ struct AndroidNativeLoadingInfo{
 };
 
 static JavaVM* _javaVM = nullptr;
-static JNIEnv* _javaEnv = nullptr;
+static JNIEnv* jniEnv = nullptr;
 static jclass _requestManagerClass = nullptr;
 static jmethodID _startLoadingMethod = nullptr;
 static std::mutex _loadsMutex;
@@ -26,13 +26,13 @@ static std::unordered_map<long, AndroidNativeLoadingInfo> _activeLoads;
 
 // Library init
 extern "C" jint JNI_OnLoad (JavaVM* vm, void* reserved) {
-    _javaEnv = nullptr;
+    jniEnv = nullptr;
     _javaVM = vm;
-    if (vm->GetEnv((void**)&_javaEnv, JNI_VERSION_1_4) != JNI_OK) {
+    if (vm->GetEnv((void**)&jniEnv, JNI_VERSION_1_4) != JNI_OK) {
         return -1;
     }
 
-    _javaVM->AttachCurrentThread(&_javaEnv, nullptr);
+    _javaVM->AttachCurrentThread(&jniEnv, nullptr);
 
     return JNI_VERSION_1_4;
 }
@@ -42,17 +42,17 @@ extern "C" jint JNI_OnLoad (JavaVM* vm, void* reserved) {
 // Инициализация нативной части, cтатический метод, поэтому второй параметр - это класс
 extern "C" void __attribute__((visibility("default")))
 Java_com_seventeenbullets_android_xgen_downloader_AndroidNativeRequestManager_initializeNative(JNIEnv *env, jclass /* this */) {
-    jclass tmp = _javaEnv->FindClass("com/seventeenbullets/android/xgen/downloader/AndroidNativeRequestManager");
-    _requestManagerClass = (jclass)_javaEnv->NewGlobalRef(tmp);
+    jclass tmp = jniEnv->FindClass("com/seventeenbullets/android/xgen/downloader/AndroidNativeRequestManager");
+    _requestManagerClass = (jclass)jniEnv->NewGlobalRef(tmp);
 
     if (!_requestManagerClass) {
         printf("java class RequestManager is not found");
         exit(-1);
     }
 
-    _startLoadingMethod = _javaEnv->GetStaticMethodID(_requestManagerClass,
+    _startLoadingMethod = jniEnv->GetStaticMethodID(_requestManagerClass,
                                                       "startTestLoading",
-                                                      "(Ljava/lang/String;Ljava/lang/String;)J");
+                                                      "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)J");
 }
 
 // Разрушение нативной части
@@ -114,6 +114,7 @@ Java_com_seventeenbullets_android_xgen_downloader_AndroidNativeRequestManager_lo
 
 long sendRequest(const std::string& url,
                  const std::string& filePath,
+                 const std::string& fileHash,
                  AndroidNativeSuccessCallback successCallback,
                  AndroidNativeRequestProgressCallback progressCb,
                  AndroidNativeFailureCallback failureCallback,
@@ -132,13 +133,15 @@ long sendRequest(const std::string& url,
             speedLimitTimeout
     };
 
-    jstring urlJava = _javaEnv->NewStringUTF(url.c_str());
-    jstring filePathJava = _javaEnv->NewStringUTF(filePath.c_str());
+    jstring urlJava = jniEnv->NewStringUTF(url.c_str());
+    jstring filePathJava = jniEnv->NewStringUTF(filePath.c_str());
+    jstring md5HashJava = jniEnv->NewStringUTF(fileHash.c_str());
 
-    jlong loadingID = _javaEnv->CallStaticLongMethod(_requestManagerClass, _startLoadingMethod, urlJava, filePathJava);
+    jlong loadingID = jniEnv->CallStaticLongMethod(_requestManagerClass, _startLoadingMethod, urlJava, filePathJava, md5HashJava);
 
-    _javaEnv->DeleteLocalRef(urlJava);
-    _javaEnv->DeleteLocalRef(filePathJava);
+    jniEnv->DeleteLocalRef(urlJava);
+    jniEnv->DeleteLocalRef(filePathJava);
+    jniEnv->DeleteLocalRef(md5HashJava);
 
     std::lock_guard<std::mutex> lock(_loadsMutex);
     _activeLoads[loadingID] = std::move(info);
@@ -167,6 +170,7 @@ void testNativeRequest() {
     // http://speedtest.ftp.otenet.gr/files/test100Mb.db
     sendRequest("http://pi2.17bullets.com/images/event/icon/eventicon_pvp_new.png?10250_",
                 "/data/user/0/com.example.downloadingtest/files/download/eventicon_pvp_new.png",
+                "", //"291addb3a362f2f69b52bfe766546c8e",
                 successCallback, progressCallback, failCallback,
                 0, 0, 0);
 }

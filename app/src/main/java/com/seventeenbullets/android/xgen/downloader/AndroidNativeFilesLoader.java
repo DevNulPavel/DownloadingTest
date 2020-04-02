@@ -18,6 +18,8 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.FileOutputStream;
 import java.io.FileInputStream;
+import java.io.IOException;
+import java.security.MessageDigest;
 //import java.nio.file.CopyOption;
 //import java.nio.file.StandardCopyOption;
 //import java.nio.file.Files;
@@ -30,6 +32,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Vector;
+import java.util.concurrent.atomic.AtomicLong;
 
 
 public class AndroidNativeFilesLoader extends Object {
@@ -43,6 +46,7 @@ public class AndroidNativeFilesLoader extends Object {
     private LoadingSuccessCallback _successCallback;
     private LoadingProgressCallback _progressCallback;
     private LoadingFailedCallback _failedCallback;
+    private AtomicLong _lastFakeLoadingId;
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -103,6 +107,7 @@ public class AndroidNativeFilesLoader extends Object {
         _successCallback = successCallback;
         _progressCallback = progressCallback;
         _failedCallback = failedCallback;
+        _lastFakeLoadingId = new AtomicLong(-1);
 
         // Регистрируем получателя широковещательных сообщений
         context.registerReceiver(_loadingFinishedReceiver, new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE));
@@ -150,22 +155,44 @@ public class AndroidNativeFilesLoader extends Object {
 
                 // Успешно загрузили файлик
                 if (status == DownloadManager.STATUS_SUCCESSFUL) {
-                    Log.d(TAG, "Service loadingFinished success 1: " + loadingId);
-                    info.completed = true;
+                    // Проверка хэша
+                    if (info.resultHash != null && info.resultHash.isEmpty() == false){
+                        String curHash = md5(info.tmpFilePath);
+                        if (curHash.equals(info.resultFilePath)){
+                            Log.d(TAG, "Service loadingFinished success 1: hash check SUCCESS " + loadingId);
+                            info.completed = true;
+                            moveFile(info.tmpFilePath, info.resultFilePath);
+                            if (_successCallback != null){
+                                _successCallback.onLoaded(info);
+                            }
+                            Log.d(TAG, "Service loadingFinished success 2: hash check SUCCESS " + loadingId);
+                        }else{
+                            Log.d(TAG, "Service loadingFinished success 1: hash check FAILED " + loadingId);
+                            info.failed = true;
+                            removeFile(info.tmpFilePath);
+                            if (_failedCallback != null){
+                                _failedCallback.onLoadingFailed(info);
+                            }
+                            Log.d(TAG, "Service loadingFinished success 2: hash check FAILED " + loadingId);
+                        }
+                    }else{
+                        Log.d(TAG, "Service loadingFinished success 1: " + loadingId);
+                        info.completed = true;
 
-                    Log.d(TAG, "Service loadingFinished success 2: " + loadingId);
+                        Log.d(TAG, "Service loadingFinished success 2: " + loadingId);
 
-                    // Перемещаем файлик из временной папки в конечную
-                    moveFile(info.tmpFilePath, info.resultFilePath);
+                        // Перемещаем файлик из временной папки в конечную
+                        moveFile(info.tmpFilePath, info.resultFilePath);
 
-                    Log.d(TAG, "Service loadingFinished success 3: " + loadingId);
+                        Log.d(TAG, "Service loadingFinished success 3: " + loadingId);
 
-                    // Вызываем коллбек ошибки
-                    if (_successCallback != null){
-                        _successCallback.onLoaded(info);
+                        // Вызываем коллбек ошибки
+                        if (_successCallback != null){
+                            _successCallback.onLoaded(info);
+                        }
+
+                        Log.d(TAG, "Service loadingFinished success 4: " + loadingId);
                     }
-
-                    Log.d(TAG, "Service loadingFinished success 4: " + loadingId);
                 }
                 // Произошла ошибка загрузки файла
                 else if (status == DownloadManager.STATUS_FAILED) {
@@ -404,11 +431,14 @@ public class AndroidNativeFilesLoader extends Object {
         return activeLoads;
     }
 
+    // TODO: проверка хэша файла
     public long startLoading(LoadTask task) {
         HashMap<String, Pair<Integer, Long>> activeLoads = getActiveLoads();
 
         // Идем по списку закачек
         Log.d(TAG, "Service startLoading: " + task.url + " " + task.resultFilePath);
+
+        String tempFilePath = makeTmpFilePath(task.resultFilePath);
 
         // Уже есть активные такие же загрузки - просто создаем информацию о них
         if (activeLoads.containsKey(task.url)){
@@ -427,10 +457,11 @@ public class AndroidNativeFilesLoader extends Object {
             LoadingInfo info = new LoadingInfo();
             info.loadingId = downloadingID;
             info.loadSize = totalBytes;
-            info.tmpFilePath = makeTmpFilePath(task.resultFilePath);
+            info.tmpFilePath = tempFilePath;
             info.resultFilePath = task.resultFilePath;
             info.url = task.url;
             info.createTime = System.currentTimeMillis();
+            info.resultHash = task.resultHash;
 
             Log.d(TAG, "Service startLoading 1: " + task.url + " " + task.resultFilePath);
 
@@ -441,6 +472,53 @@ public class AndroidNativeFilesLoader extends Object {
             Log.d(TAG, "Service startLoading 2: " + task.url + " " + task.resultFilePath);
 
             return downloadingID;
+        }
+        // Проверяем, нет ли у нас уже загруженного временного файлика + его хэш
+        else if(new File(tempFilePath).exists() && (task.resultHash != null) && (task.resultHash.isEmpty() == false)){
+            Log.d(TAG, "Service startLoading 2: temp file exists " + task.url + " " + task.resultFilePath);
+
+            Log.d(TAG, "Service startLoading 2: check hash");
+            String currentMd5 = md5(tempFilePath);
+            if (currentMd5.equals(task.resultHash)){
+                moveFile(tempFilePath, task.resultFilePath);
+                long fakeLoading = fileIsAlreadyExist(task);
+                return fakeLoading;
+            }else{
+                Log.d(TAG, "Service startLoading 3: " + task.url + " " + task.resultFilePath);
+
+                // Стартуем загрузку
+                long loadingID = startFileLoading(task);
+
+                Log.d(TAG, "Service startLoading 4: " + task.url + " " + task.resultFilePath);
+
+                return loadingID;
+            }
+        }
+        // Проверяем, нет ли у нас уже загруженного конечного файлика
+        else if(new File(task.resultFilePath).exists()){
+            Log.d(TAG, "Service startLoading 2: file exists " + task.url + " " + task.resultFilePath);
+
+            if ((task.resultHash != null) && (task.resultHash.isEmpty() == false)){
+                Log.d(TAG, "Service startLoading 2: check hash");
+                String currentMd5 = md5(task.resultFilePath);
+                if (currentMd5.equals(task.resultHash)){
+                    long fakeLoading = fileIsAlreadyExist(task);
+                    return fakeLoading;
+                }else{
+                    Log.d(TAG, "Service startLoading 3: " + task.url + " " + task.resultFilePath);
+
+                    // Стартуем загрузку
+                    long loadingID = startFileLoading(task);
+
+                    Log.d(TAG, "Service startLoading 4: " + task.url + " " + task.resultFilePath);
+
+                    return loadingID;
+                }
+            }else{
+                Log.d(TAG, "Service startLoading: no check hash");
+                long fakeLoading = fileIsAlreadyExist(task);
+                return fakeLoading;
+            }
         }else{
             Log.d(TAG, "Service startLoading 3: " + task.url + " " + task.resultFilePath);
 
@@ -459,6 +537,76 @@ public class AndroidNativeFilesLoader extends Object {
         int bytes_total = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES));
         cursor.close();
         return bytes_total;
+    }
+
+    private String md5(String filePath) {
+        try {
+            char[] hexDigits = "0123456789abcdef".toCharArray();
+
+            FileInputStream fis   = new FileInputStream(filePath);
+
+            String md5 = "";
+            try {
+                byte[] bytes = new byte[4096];
+                int read = 0;
+                MessageDigest digest = MessageDigest.getInstance("MD5");
+
+                while ((read = fis.read(bytes)) != -1) {
+                    digest.update(bytes, 0, read);
+                }
+
+                byte[] messageDigest = digest.digest();
+
+                StringBuilder sb = new StringBuilder(32);
+
+                for (byte b : messageDigest) {
+                    sb.append(hexDigits[(b >> 4) & 0x0f]);
+                    sb.append(hexDigits[b & 0x0f]);
+                }
+
+                md5 = sb.toString();
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+
+            return md5;
+        } catch (Exception e) {
+        }
+
+        return "";
+    }
+
+    private long fileIsAlreadyExist(LoadTask task){
+        Log.d(TAG, "Service startLoading: result file already exists " + task.url + " " + task.resultFilePath);
+
+        File tempFile = new File(task.resultFilePath);
+        final long fileSize = tempFile.length();
+
+        // Для ненастоящих загрузок используем отрицательные номера загрузки
+        long downloadingID = _lastFakeLoadingId.addAndGet(-1);
+
+        final LoadingInfo info = new LoadingInfo();
+        info.loadingId = downloadingID;
+        info.loadSize = fileSize;
+        info.tmpFilePath = makeTmpFilePath(task.resultFilePath);
+        info.resultFilePath = task.resultFilePath;
+        info.url = task.url;
+        info.createTime = System.currentTimeMillis();
+        info.resultHash = task.resultHash;
+
+        _context.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if(_progressCallback != null){
+                    _progressCallback.onLoadingPorgress(info, fileSize, fileSize);
+                }
+                if(_successCallback != null){
+                    _successCallback.onLoaded(info);
+                }
+            }
+        });
+
+        return downloadingID;
     }
 
     private long startFileLoading(LoadTask task){
@@ -484,7 +632,7 @@ public class AndroidNativeFilesLoader extends Object {
 
         synchronized (_activeFilesLoading){
             // Инициируем загрузку
-            long tempDownloadingID = -1;
+            long tempDownloadingID = 0;
             try {
                 tempDownloadingID = _downloadManager.enqueue(request);// enqueue puts the download request in the queue.
             }catch (Exception e){
@@ -571,6 +719,13 @@ public class AndroidNativeFilesLoader extends Object {
             }*/
         }
 
+    }
+
+    private void removeFile(String filePath){
+        File file = new File(filePath);
+        if (file.exists()){
+            file.delete();
+        }
     }
 
     /*private void renameTmpFile(String tmpFilePath, String resultPath){
