@@ -24,7 +24,7 @@ import com.seventeenbullets.android.xgen.downloader.ProgressInfo;
 public class DownloadingService extends Service {
     final private String TAG = "DOWNLOAD_TAG";
     private Binder _binder;
-    private DownloadingBroadcastReceiver _downloadingReceiver = null;
+    //private DownloadingBroadcastReceiver _downloadingReceiver = null;
     private DownloadManager _downloadManager;
     private HashMap<Long, LoadingInfo> _files_loading = null;
 
@@ -40,13 +40,13 @@ public class DownloadingService extends Service {
         super.onCreate();
 
         _downloadManager = (DownloadManager)getSystemService(DOWNLOAD_SERVICE);
-        _downloadingReceiver = new DownloadingBroadcastReceiver(this);
+        //_downloadingReceiver = new DownloadingBroadcastReceiver(this);
         _files_loading = new HashMap<Long, LoadingInfo>();
 
         _binder = new Binder();
 
         // Регистрируем получателя широковещательных сообщений
-        this.registerReceiver(_downloadingReceiver, new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE));
+        //this.registerReceiver(_downloadingReceiver, new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE));
     }
 
     @Override
@@ -55,7 +55,7 @@ public class DownloadingService extends Service {
         super.onDestroy();
 
         // Убираем Receiver
-        this.unregisterReceiver(_downloadingReceiver);
+        //this.unregisterReceiver(_downloadingReceiver);
     }
 
     @Override

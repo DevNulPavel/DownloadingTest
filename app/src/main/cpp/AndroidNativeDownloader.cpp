@@ -52,7 +52,7 @@ Java_com_seventeenbullets_android_xgen_downloader_AndroidNativeRequestManager_in
 
     _startLoadingMethod = jniEnv->GetStaticMethodID(_requestManagerClass,
                                                       "startTestLoading",
-                                                      "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)J");
+                                                      "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)J");
 }
 
 // Разрушение нативной части
@@ -97,14 +97,14 @@ Java_com_seventeenbullets_android_xgen_downloader_AndroidNativeRequestManager_lo
 
 // Загрузка c ошибкой
 extern "C" void __attribute__((visibility("default")))
-Java_com_seventeenbullets_android_xgen_downloader_AndroidNativeRequestManager_loadingFailed(JNIEnv *env, jclass /* this */, jlong loadingHandle) {
+Java_com_seventeenbullets_android_xgen_downloader_AndroidNativeRequestManager_loadingFailed(JNIEnv *env, jclass /* this */, jlong loadingHandle, bool canceled) {
     std::lock_guard<std::mutex> lock(_loadsMutex);
 
     auto it = _activeLoads.find(loadingHandle);
     if(it != _activeLoads.end()){
         // Коллбек завершения
         if(it->second.failureCallback){
-            it->second.failureCallback(loadingHandle, 0, 0); // TODO: Коды ошибок
+            it->second.failureCallback(loadingHandle, 0, 0, canceled); // TODO: Коды ошибок
         }
 
         // Удаляем из активных
@@ -115,6 +115,8 @@ Java_com_seventeenbullets_android_xgen_downloader_AndroidNativeRequestManager_lo
 long sendRequest(const std::string& url,
                  const std::string& filePath,
                  const std::string& fileHash,
+                 const std::string& title,
+                 const std::string& description,
                  AndroidNativeSuccessCallback successCallback,
                  AndroidNativeRequestProgressCallback progressCb,
                  AndroidNativeFailureCallback failureCallback,
@@ -136,12 +138,16 @@ long sendRequest(const std::string& url,
     jstring urlJava = jniEnv->NewStringUTF(url.c_str());
     jstring filePathJava = jniEnv->NewStringUTF(filePath.c_str());
     jstring md5HashJava = jniEnv->NewStringUTF(fileHash.c_str());
+    jstring titleJava = jniEnv->NewStringUTF(title.c_str());
+    jstring descriptionJava = jniEnv->NewStringUTF(description.c_str());
 
-    jlong loadingID = jniEnv->CallStaticLongMethod(_requestManagerClass, _startLoadingMethod, urlJava, filePathJava, md5HashJava);
+    jlong loadingID = jniEnv->CallStaticLongMethod(_requestManagerClass, _startLoadingMethod, urlJava, filePathJava, md5HashJava, titleJava, descriptionJava);
 
     jniEnv->DeleteLocalRef(urlJava);
     jniEnv->DeleteLocalRef(filePathJava);
     jniEnv->DeleteLocalRef(md5HashJava);
+    jniEnv->DeleteLocalRef(titleJava);
+    jniEnv->DeleteLocalRef(descriptionJava);
 
     std::lock_guard<std::mutex> lock(_loadsMutex);
     _activeLoads[loadingID] = std::move(info);
@@ -159,18 +165,21 @@ void testNativeRequest() {
     AndroidNativeRequestProgressCallback progressCallback = [](long handle, double totalSize, double loadedSize){
         printf("Progress: %d / %d", loadedSize, totalSize);
     };
-    AndroidNativeFailureCallback failCallback = [](long handle, long httpCode, int errorCode){
+    AndroidNativeFailureCallback failCallback = [](long handle, long httpCode, int errorCode, bool nativeCanceled){
         printf("Failed");
     };
 
+    // http://pi2.17bullets.com/images/event/icon/eventicon_pvp_new.png?10250_
     // http://speedtest.tele2.net/
     // https://speed.hetzner.de/100MB.bin
     // https://speed.hetzner.de/1GB.bin
     // https://speed.hetzner.de/10GB.bin
     // http://speedtest.ftp.otenet.gr/files/test100Mb.db
-    sendRequest("http://pi2.17bullets.com/images/event/icon/eventicon_pvp_new.png?10250_",
-                "/data/user/0/com.example.downloadingtest/files/download/eventicon_pvp_new.png",
+    sendRequest("https://speed.hetzner.de/1GB.bin",
+                "/data/user/0/com.example.downloadingtest/files/download/1GB.bin",
                 "", //"291addb3a362f2f69b52bfe766546c8e",
+                "Loading title",
+                "Loading description",
                 successCallback, progressCallback, failCallback,
                 0, 0, 0);
 }

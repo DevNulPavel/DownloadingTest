@@ -14,7 +14,7 @@ public class AndroidNativeRequestManager extends Object {
     private static native void destroyNative();
     private static native void loadingSuccess(long handle);
     private static native void loadingProgress(long handle, long totalSize, long loadedSize);
-    private static native void loadingFailed(long handle);
+    private static native void loadingFailed(long handle, boolean canceled);
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -34,8 +34,8 @@ public class AndroidNativeRequestManager extends Object {
 
     private static AndroidNativeFilesLoader.LoadingFailedCallback _failedCallback = new AndroidNativeFilesLoader.LoadingFailedCallback() {
         @Override
-        public void onLoadingFailed(LoadingInfo info) {
-            loadingFailed(info.loadingId);
+        public void onLoadingFailed(LoadingInfo info, boolean canceled) {
+            loadingFailed(info.loadingId, canceled);
         }
     };
 
@@ -44,7 +44,7 @@ public class AndroidNativeRequestManager extends Object {
     public static void initialize(Activity activity){
         initializeNative();
         _activity = activity;
-        _loader = new AndroidNativeFilesLoader(activity, _successCallback, _progressCallback, _failedCallback);
+        _loader = new AndroidNativeFilesLoader(_activity, _successCallback, _progressCallback, _failedCallback);
     }
 
     public static void finish(){
@@ -52,7 +52,7 @@ public class AndroidNativeRequestManager extends Object {
         _loader = null;         // TODO: destroy call
     }
 
-    public static long startTestLoading(String url, String path, String md5Hash){
+    public static long startTestLoading(String url, String path, String md5Hash, String title, String description){
         // TODO: path handle
 
         LoadTask task = new LoadTask();
@@ -60,6 +60,8 @@ public class AndroidNativeRequestManager extends Object {
         //task.resultFilePath = _activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS).getAbsolutePath() + "/test.png";
         task.resultFilePath = path;
         task.resultHash = md5Hash;
+        task.loadingTitle = title;
+        task.loadingDescription = description;
 
         long loadingID = _loader.startLoading(task);
 

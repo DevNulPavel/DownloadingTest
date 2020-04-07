@@ -59,7 +59,7 @@ public class AndroidNativeFilesLoader extends Object {
     }
 
     public interface LoadingFailedCallback {
-        void onLoadingFailed(LoadingInfo info);
+        void onLoadingFailed(LoadingInfo info, boolean canceled);
     }
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -84,10 +84,13 @@ public class AndroidNativeFilesLoader extends Object {
             Log.d(TAG, "Notification message received");
 
             if (intent.getAction().equals(DownloadManager.ACTION_NOTIFICATION_CLICKED)) {
-                long id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1);
-                Log.d(TAG, "Loading broadcast message: " + id);
-
-                onNotificationClicked(id);
+                /*if (context)
+                String packageName = intent.getPackage();
+                Log.d(TAG, "Loading broadcast message: " + id);*/
+                //long id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1);
+                if (_context.equals(context)){
+                    onNotificationClicked();
+                }
             }
         }
     };
@@ -150,6 +153,8 @@ public class AndroidNativeFilesLoader extends Object {
                 // Статус загрузки
                 int status = cursor.getInt(idStatusIndex);
 
+                Log.d(TAG, "Service loadingFinished 1: " + loadingId + " status: " + status);
+
                 LoadingInfo info = _activeFilesLoading.get(loadingId);
                 _activeFilesLoading.remove(loadingId);
 
@@ -172,7 +177,7 @@ public class AndroidNativeFilesLoader extends Object {
                             info.failed = true;
                             removeFile(info.tmpFilePath);
                             if (_failedCallback != null){
-                                _failedCallback.onLoadingFailed(info);
+                                _failedCallback.onLoadingFailed(info, false);
                             }
                             Log.d(TAG, "Service loadingFinished success 2: hash check FAILED " + loadingId);
                         }
@@ -201,10 +206,12 @@ public class AndroidNativeFilesLoader extends Object {
 
                     info.failed = true;
 
+                    Log.d(TAG, "Service loadingFinished failed 1: " + loadingId);
+
                     // TODO: Причину тоже надо
                     // Вызываем коллбек ошибки
                     if (_failedCallback != null){
-                        _failedCallback.onLoadingFailed(info);
+                        _failedCallback.onLoadingFailed(info, false);
                     }
 
                     switch (reason) {
@@ -227,22 +234,80 @@ public class AndroidNativeFilesLoader extends Object {
                             Log.d(TAG, "Service loadingFinished success: " + loadingId);
                             break;
                         default:
+                            Log.d(TAG, "Service loadingFinished default: " + loadingId);
                             break;
                     }
+                }else if (status == DownloadManager.STATUS_PAUSED || status == DownloadManager.STATUS_PENDING || status == DownloadManager.STATUS_RUNNING) {
+                    Log.d(TAG, "Service loadingFinished last case 0: " + loadingId);
+
+                    _downloadManager.remove(loadingId);
+
+                    // TODO: Причину тоже надо
+                    // Вызываем коллбек ошибки
+                    if (_failedCallback != null){
+                        _failedCallback.onLoadingFailed(info, true);
+                    }
+                }else{
+                    Log.d(TAG, "Service loadingFinished else case 0: !!!!! " + loadingId);
+                }
+            }else{
+                Log.d(TAG, "Service loadingFinished canceled 1: " + loadingId);
+                if (_activeFilesLoading.containsKey(loadingId)) {
+                    Log.d(TAG, "Service loadingFinished canceled 2: " + loadingId);
+                    LoadingInfo info = _activeFilesLoading.get(loadingId);
+                    _activeFilesLoading.remove(loadingId);
+
+                    info.failed = true;
+
+                    Log.d(TAG, "Service loadingFinished canceled 3: " + loadingId);
+
+                    // TODO: Причину тоже надо
+                    // Вызываем коллбек ошибки
+                    if (_failedCallback != null){
+                        _failedCallback.onLoadingFailed(info, true);
+                    }
+
+                    Log.d(TAG, "Service loadingFinished canceled 4: " + loadingId);
                 }
             }
         }
     }
 
-    private void onNotificationClicked (long loadingId){
-        Log.d(TAG, "Service loadingFinished: " + loadingId);
+    private void onNotificationClicked (){
+        if (_context != null){
+            Intent i = new Intent(_context, _context.getClass());
+            i.setAction(Intent.ACTION_MAIN);
+            i.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+            i.addCategory(Intent.CATEGORY_LAUNCHER);
+            _context.startActivity(i);
+        }
+
+        /*Log.d(TAG, "Service loadingFinished: " + loadingId);
         synchronized (_activeFilesLoading){
             if(_activeFilesLoading.containsKey(loadingId)){
                 Intent dm = new Intent(DownloadManager.ACTION_VIEW_DOWNLOADS);
                 dm.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 _context.startActivity(dm);
             }
-        }
+        }*/
+        //Intent dm = new Intent(DownloadManager.ACTION_VIEW_DOWNLOADS);
+        //dm.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        //_context.startActivity(dm);
+
+        /*NotificationManager notificationManager = (NotificationManager)_context.getSystemService(Context.NOTIFICATION_SERVICE);
+        Notification notification = new Notification(icon, message, when);
+
+        Intent notificationIntent = new Intent(context, HomeActivity.class);
+
+        notificationIntent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP
+                | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+
+        PendingIntent intent = PendingIntent.getActivity(context, 0,
+                notificationIntent, 0);
+
+        notification.setLatestEventInfo(context, title, message, intent);
+        notification.flags |= Notification.FLAG_AUTO_CANCEL;
+        notificationManager.notify(0, notification);*/
     }
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -287,7 +352,7 @@ public class AndroidNativeFilesLoader extends Object {
                                         // TODO: Причину тоже надо
                                         // Вызываем коллбек ошибки
                                         if (_failedCallback != null){
-                                            _failedCallback.onLoadingFailed(pair.getValue());
+                                            _failedCallback.onLoadingFailed(pair.getValue(), false);
                                         }
 
                                         break;
@@ -301,7 +366,7 @@ public class AndroidNativeFilesLoader extends Object {
                                         // TODO: Причину тоже надо
                                         // Вызываем коллбек ошибки
                                         if (_failedCallback != null){
-                                            _failedCallback.onLoadingFailed(pair.getValue());
+                                            _failedCallback.onLoadingFailed(pair.getValue(), false);
                                         }
 
                                         break;
@@ -526,7 +591,7 @@ public class AndroidNativeFilesLoader extends Object {
             // Стартуем загрузку
             long loadingID = startFileLoading(task);
 
-            Log.d(TAG, "Service startLoading 4: " + task.url + " " + task.resultFilePath);
+            Log.d(TAG, "Service startLoading 4: id = " + loadingID + " " + task.url + " " + task.resultFilePath);
 
             return loadingID;
         }
@@ -624,12 +689,17 @@ public class AndroidNativeFilesLoader extends Object {
 
         // Формируем запрос
         Request request = new Request(url)
-                .setTitle("Downloading name")
-                .setDescription("Downloading description")
                 .setNotificationVisibility(Request.VISIBILITY_VISIBLE)
                 .setDestinationUri(Uri.fromFile(file))
                 .setAllowedOverMetered(true)
                 .setAllowedOverRoaming(true);
+
+        if (task.loadingTitle.isEmpty() == false) {
+            request.setTitle(task.loadingTitle);
+        }
+        if (task.loadingDescription.isEmpty() == false) {
+            request.setDescription(task.loadingDescription);
+        }
 
         synchronized (_activeFilesLoading){
             // Инициируем загрузку

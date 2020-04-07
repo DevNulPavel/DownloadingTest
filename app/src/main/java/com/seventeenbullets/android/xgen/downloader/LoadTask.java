@@ -4,4 +4,6 @@ public class LoadTask {
     public String url;
     public String resultFilePath;
     public String resultHash;
+    public String loadingTitle;
+    public String loadingDescription;
 }
