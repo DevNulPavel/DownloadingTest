@@ -52,7 +52,7 @@ public class AndroidNativeRequestManager extends Object {
         _loader = null;         // TODO: destroy call
     }
 
-    public static long startTestLoading(String url, String path, String md5Hash, String title, String description){
+    public static long startTestLoading(String url, String path, String md5Hash, String title, String description, long timeoutMSec){
         // TODO: path handle
 
         LoadTask task = new LoadTask();
@@ -62,6 +62,7 @@ public class AndroidNativeRequestManager extends Object {
         task.resultHash = md5Hash;
         task.loadingTitle = title;
         task.loadingDescription = description;
+        task.timeoutMsec = timeoutMSec;
 
         long loadingID = _loader.startLoading(task);
 

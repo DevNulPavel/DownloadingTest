@@ -11,9 +11,7 @@ struct AndroidNativeLoadingInfo{
     AndroidNativeSuccessCallback successCallback;
     AndroidNativeRequestProgressCallback progressCb;
     AndroidNativeFailureCallback failureCallback;
-    int connectTimeout;
-    int transferTimeout;
-    int speedLimitTimeout;
+    long timeoutMsec;
 };
 
 static JavaVM* _javaVM = nullptr;
@@ -50,9 +48,10 @@ Java_com_seventeenbullets_android_xgen_downloader_AndroidNativeRequestManager_in
         exit(-1);
     }
 
+    // https://docs.oracle.com/javase/7/docs/technotes/guides/jni/spec/types.html
     _startLoadingMethod = jniEnv->GetStaticMethodID(_requestManagerClass,
                                                       "startTestLoading",
-                                                      "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)J");
+                                                      "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;J)J");
 }
 
 // Разрушение нативной части
@@ -120,9 +119,7 @@ long sendRequest(const std::string& url,
                  AndroidNativeSuccessCallback successCallback,
                  AndroidNativeRequestProgressCallback progressCb,
                  AndroidNativeFailureCallback failureCallback,
-                 int connectTimeout,
-                 int transferTimeout,
-                 int speedLimitTimeout){
+                 long timeoutMSec){
 
     AndroidNativeLoadingInfo info{
             url,
@@ -130,9 +127,7 @@ long sendRequest(const std::string& url,
             successCallback,
             progressCb,
             failureCallback,
-            connectTimeout,
-            transferTimeout,
-            speedLimitTimeout
+            timeoutMSec
     };
 
     jstring urlJava = jniEnv->NewStringUTF(url.c_str());
@@ -141,7 +136,7 @@ long sendRequest(const std::string& url,
     jstring titleJava = jniEnv->NewStringUTF(title.c_str());
     jstring descriptionJava = jniEnv->NewStringUTF(description.c_str());
 
-    jlong loadingID = jniEnv->CallStaticLongMethod(_requestManagerClass, _startLoadingMethod, urlJava, filePathJava, md5HashJava, titleJava, descriptionJava);
+    jlong loadingID = jniEnv->CallStaticLongMethod(_requestManagerClass, _startLoadingMethod, urlJava, filePathJava, md5HashJava, titleJava, descriptionJava, timeoutMSec);
 
     jniEnv->DeleteLocalRef(urlJava);
     jniEnv->DeleteLocalRef(filePathJava);
@@ -181,5 +176,5 @@ void testNativeRequest() {
                 "Loading title",
                 "Loading description",
                 successCallback, progressCallback, failCallback,
-                0, 0, 0);
+                5000);
 }

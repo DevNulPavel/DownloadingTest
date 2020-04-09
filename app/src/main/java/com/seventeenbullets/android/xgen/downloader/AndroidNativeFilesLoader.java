@@ -10,15 +10,14 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.database.Cursor;
 import android.net.Uri;
-import android.os.Environment;
 import android.util.Log;
 import android.util.Pair;
+import android.net.ConnectivityManager;
 //import java.nio.channels.FileChannel;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.FileOutputStream;
 import java.io.FileInputStream;
-import java.io.IOException;
 import java.security.MessageDigest;
 //import java.nio.file.CopyOption;
 //import java.nio.file.StandardCopyOption;
@@ -40,7 +39,7 @@ public class AndroidNativeFilesLoader extends Object {
 
     private Activity _context;
     private DownloadManager _downloadManager;
-    private HashMap<Long, LoadingInfo> _activeFilesLoading;
+    private final HashMap<Long, LoadingInfo> _activeFilesLoading;
     private Timer _timeoutTimer;
     private Timer _progressTimer;
     private LoadingSuccessCallback _successCallback;
@@ -84,10 +83,6 @@ public class AndroidNativeFilesLoader extends Object {
             Log.d(TAG, "Notification message received");
 
             if (intent.getAction().equals(DownloadManager.ACTION_NOTIFICATION_CLICKED)) {
-                /*if (context)
-                String packageName = intent.getPackage();
-                Log.d(TAG, "Loading broadcast message: " + id);*/
-                //long id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1);
                 if (_context.equals(context)){
                     onNotificationClicked();
                 }
@@ -104,9 +99,7 @@ public class AndroidNativeFilesLoader extends Object {
         // Переменные, с которыми будет работа
         _context = context;
         _downloadManager = (DownloadManager)context.getSystemService(_context.DOWNLOAD_SERVICE);
-        _timeoutTimer = new Timer();
-        _progressTimer = new Timer();
-        _activeFilesLoading = new HashMap<Long, LoadingInfo>();
+        _activeFilesLoading = new HashMap<>();
         _successCallback = successCallback;
         _progressCallback = progressCallback;
         _failedCallback = failedCallback;
@@ -115,9 +108,6 @@ public class AndroidNativeFilesLoader extends Object {
         // Регистрируем получателя широковещательных сообщений
         context.registerReceiver(_loadingFinishedReceiver, new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE));
         context.registerReceiver(_notificationClickedReceiver, new IntentFilter(DownloadManager.ACTION_NOTIFICATION_CLICKED));
-
-        enableTimeoutTimerForLoading();
-        enableProgressTimerForLoading();
     }
 
     // TODO: Вынести в метод, вызываемый руками
@@ -137,143 +127,165 @@ public class AndroidNativeFilesLoader extends Object {
 
     private void onLoadingFinished(long loadingId){
         Log.d(TAG, "Service loadingFinished: " + loadingId);
-        synchronized (_activeFilesLoading){
-            if(_activeFilesLoading.containsKey(loadingId) == false){
-                Log.d(TAG, "Service loadingFinished success 0: " + loadingId);
+        LoadingInfo info = null;
+        synchronized (_activeFilesLoading) {
+            // Проверяем наличие активной загрузки с таким ID
+            if (_activeFilesLoading.containsKey(loadingId)) {
+                // Получаем информацию и удаляем из загрузчика
+                info = _activeFilesLoading.get(loadingId);
+                _activeFilesLoading.remove(loadingId);
+            }else{
+                Log.d(TAG, "Service loadingFinished: no active loading for id = " + loadingId);
                 return;
             }
+        }
 
-            Cursor cursor = _downloadManager.query(new Query().setFilterById(loadingId));
+        if (info == null){
+            Log.d(TAG, "Service loadingFinished: no active loading for id = " + loadingId);
+            return;
+        }
 
-            if (cursor.moveToFirst()) {
-                int idStatusIndex = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS);
-                //int idLocalUriIndex = cursor.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI);
-                //int idReasonIndex = cursor.getColumnIndex(DownloadManager.COLUMN_REASON);
+        // Проверка, что уже обработали
+        if (info.processed){
+            Log.d(TAG, "Service loadingFinished: loading processed for id = " + loadingId);
+            return;
+        }
 
-                // Статус загрузки
-                int status = cursor.getInt(idStatusIndex);
+        // Выставляем флаг, что уже обработали
+        info.processed = true;
 
-                Log.d(TAG, "Service loadingFinished 1: " + loadingId + " status: " + status);
+        // Получаем курсор по информации об данной загрузку
+        Cursor cursor = _downloadManager.query(new Query().setFilterById(loadingId));
+        if (cursor.moveToFirst()) {
+            // Статус загрузки
+            int status = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_STATUS));
 
-                LoadingInfo info = _activeFilesLoading.get(loadingId);
-                _activeFilesLoading.remove(loadingId);
+            Log.d(TAG, "Service loadingFinished 1: " + loadingId + " status: " + status);
 
-                // Успешно загрузили файлик
-                if (status == DownloadManager.STATUS_SUCCESSFUL) {
-                    // Проверка хэша
-                    // TODO: Сейчас отключено
-                    if (false && (info.resultHash != null) && (info.resultHash.isEmpty() == false)){
-                        String curHash = md5(info.tmpFilePath);
-                        if (curHash.equals(info.resultFilePath)){
-                            Log.d(TAG, "Service loadingFinished success 1: hash check SUCCESS " + loadingId);
-                            info.completed = true;
-                            moveFile(info.tmpFilePath, info.resultFilePath);
-                            if (_successCallback != null){
-                                _successCallback.onLoaded(info);
-                            }
-                            Log.d(TAG, "Service loadingFinished success 2: hash check SUCCESS " + loadingId);
-                        }else{
-                            Log.d(TAG, "Service loadingFinished success 1: hash check FAILED " + loadingId);
-                            info.failed = true;
-                            removeFile(info.tmpFilePath);
-                            if (_failedCallback != null){
-                                _failedCallback.onLoadingFailed(info, false);
-                            }
-                            Log.d(TAG, "Service loadingFinished success 2: hash check FAILED " + loadingId);
-                        }
-                    }else{
-                        Log.d(TAG, "Service loadingFinished success 1: " + loadingId);
-                        info.completed = true;
+            // Успешно загрузили файлик
+            if (status == DownloadManager.STATUS_SUCCESSFUL) {
+                // Проверка хэша нужна или нет?
+                if ((info.resultHash != null) && (info.resultHash.isEmpty() == false)){
 
-                        Log.d(TAG, "Service loadingFinished success 2: " + loadingId);
+                    // Хэш текущего временного файлика
+                    String curHash = md5(info.tmpFilePath);
 
-                        // Перемещаем файлик из временной папки в конечную
+                    // Сравниваем хэши
+                    if (curHash.equals(info.resultFilePath)){
+                        Log.d(TAG, "Service loadingFinished success 1: hash check SUCCESS " + loadingId);
+
+                        // Перемещаем наш файлик на его конечное место загрузки
                         moveFile(info.tmpFilePath, info.resultFilePath);
 
-                        Log.d(TAG, "Service loadingFinished success 3: " + loadingId);
-
-                        // Вызываем коллбек ошибки
+                        // Коллбек успешной загрузки
                         if (_successCallback != null){
                             _successCallback.onLoaded(info);
                         }
 
-                        Log.d(TAG, "Service loadingFinished success 4: " + loadingId);
-                    }
-                }
-                // Произошла ошибка загрузки файла
-                else if (status == DownloadManager.STATUS_FAILED) {
-                    int reason = cursor.getInt(idStatusIndex);
+                        Log.d(TAG, "Service loadingFinished success 2: hash check SUCCESS " + loadingId);
+                    }else{
+                        Log.d(TAG, "Service loadingFinished success 1: hash check FAILED " + loadingId);
 
-                    info.failed = true;
+                        // Проверку хэша не прошли - удаляем файлик
+                        removeFile(info.tmpFilePath);
 
-                    Log.d(TAG, "Service loadingFinished failed 1: " + loadingId);
-
-                    // TODO: Причину тоже надо
-                    // Вызываем коллбек ошибки
-                    if (_failedCallback != null){
-                        _failedCallback.onLoadingFailed(info, false);
-                    }
-
-                    switch (reason) {
-                        case DownloadManager.ERROR_FILE_ERROR:
-                            Log.d(TAG, "Service file error: " + loadingId);
-                            break;
-                        case DownloadManager.ERROR_DEVICE_NOT_FOUND:
-                            Log.d(TAG, "Service device not found: " + loadingId);
-                            break;
-                        case DownloadManager.ERROR_INSUFFICIENT_SPACE:
-                            Log.d(TAG, "Service space doesn't exist: " + loadingId);
-                            break;
-                        case DownloadManager.ERROR_HTTP_DATA_ERROR:
-                            Log.d(TAG, "Service http data error: " + loadingId);
-                            break;
-                        case DownloadManager.ERROR_UNHANDLED_HTTP_CODE:
-                            Log.d(TAG, "Service loadingFinished success: " + loadingId);
-                            break;
-                        case DownloadManager.ERROR_TOO_MANY_REDIRECTS:
-                            Log.d(TAG, "Service loadingFinished success: " + loadingId);
-                            break;
-                        default:
-                            Log.d(TAG, "Service loadingFinished default: " + loadingId);
-                            break;
-                    }
-                }else if (status == DownloadManager.STATUS_PAUSED || status == DownloadManager.STATUS_PENDING || status == DownloadManager.STATUS_RUNNING) {
-                    Log.d(TAG, "Service loadingFinished last case 0: " + loadingId);
-
-                    _downloadManager.remove(loadingId);
-
-                    // TODO: Причину тоже надо
-                    // Вызываем коллбек ошибки
-                    if (_failedCallback != null){
-                        _failedCallback.onLoadingFailed(info, true);
+                        // Коллбек ошибки загрузки
+                        // TODO: Надо  дополнительную информацию
+                        if (_failedCallback != null){
+                            _failedCallback.onLoadingFailed(info, false);
+                        }
+                        Log.d(TAG, "Service loadingFinished success 2: hash check FAILED " + loadingId);
                     }
                 }else{
-                    Log.d(TAG, "Service loadingFinished else case 0: !!!!! " + loadingId);
-                }
-            }else{
-                Log.d(TAG, "Service loadingFinished canceled 1: " + loadingId);
-                if (_activeFilesLoading.containsKey(loadingId)) {
-                    Log.d(TAG, "Service loadingFinished canceled 2: " + loadingId);
-                    LoadingInfo info = _activeFilesLoading.get(loadingId);
-                    _activeFilesLoading.remove(loadingId);
+                    // Нам не надо было проверять хэш
 
-                    info.failed = true;
+                    Log.d(TAG, "Service loadingFinished success 1: " + loadingId);
 
-                    Log.d(TAG, "Service loadingFinished canceled 3: " + loadingId);
+                    Log.d(TAG, "Service loadingFinished success 2: " + loadingId);
 
-                    // TODO: Причину тоже надо
-                    // Вызываем коллбек ошибки
-                    if (_failedCallback != null){
-                        _failedCallback.onLoadingFailed(info, true);
+                    // Перемещаем файлик из временного пути в конечный
+                    moveFile(info.tmpFilePath, info.resultFilePath);
+
+                    Log.d(TAG, "Service loadingFinished success 3: " + loadingId);
+
+                    // Вызываем коллбек успеха
+                    if (_successCallback != null){
+                        _successCallback.onLoaded(info);
                     }
 
-                    Log.d(TAG, "Service loadingFinished canceled 4: " + loadingId);
+                    Log.d(TAG, "Service loadingFinished success 4: " + loadingId);
                 }
             }
+            // Произошла ошибка загрузки файла
+            else if (status == DownloadManager.STATUS_FAILED) {
+                int reason = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_REASON));
+
+                Log.d(TAG, "Service loadingFinished failed 1: " + loadingId);
+
+                switch (reason) {
+                    case DownloadManager.ERROR_FILE_ERROR:
+                        Log.d(TAG, "Service file error: " + loadingId);
+                        break;
+                    case DownloadManager.ERROR_DEVICE_NOT_FOUND:
+                        Log.d(TAG, "Service device not found: " + loadingId);
+                        break;
+                    case DownloadManager.ERROR_INSUFFICIENT_SPACE:
+                        Log.d(TAG, "Service space doesn't exist: " + loadingId);
+                        break;
+                    case DownloadManager.ERROR_HTTP_DATA_ERROR:
+                        Log.d(TAG, "Service http data error: " + loadingId);
+                        break;
+                    case DownloadManager.ERROR_UNHANDLED_HTTP_CODE:
+                        Log.d(TAG, "Service loadingFinished success: " + loadingId);
+                        break;
+                    case DownloadManager.ERROR_TOO_MANY_REDIRECTS:
+                        Log.d(TAG, "Service loadingFinished success: " + loadingId);
+                        break;
+                    default:
+                        Log.d(TAG, "Service loadingFinished default: " + loadingId);
+                        break;
+                }
+
+                // TODO: Причину тоже надо
+                // Вызываем коллбек ошибки
+                if (_failedCallback != null){
+                    _failedCallback.onLoadingFailed(info, false);
+                }
+            }
+            // Обработка прерывания загрузки
+            else if (status == DownloadManager.STATUS_PAUSED || status == DownloadManager.STATUS_PENDING || status == DownloadManager.STATUS_RUNNING) {
+                Log.d(TAG, "Service loadingFinished: loading interrupt " + loadingId);
+
+                // Принудительно убираем загрузку
+                _downloadManager.remove(loadingId);
+
+                // TODO: Причину тоже надо
+                // Вызываем коллбек ошибки
+                if (_failedCallback != null){
+                    _failedCallback.onLoadingFailed(info, true);
+                }
+            }else{
+                Log.d(TAG, "Service loadingFinished else case 0: !!!!! " + loadingId);
+            }
+        }
+        // При прерывании загрузки бывают случаи, когда у нас нету информации о загрузки
+        else{
+            Log.d(TAG, "Service loadingFinished canceled 1: " + loadingId);
+
+            Log.d(TAG, "Service loadingFinished canceled 3: " + loadingId);
+
+            // TODO: Причину тоже надо
+            // Вызываем коллбек ошибки
+            if (_failedCallback != null){
+                _failedCallback.onLoadingFailed(info, true);
+            }
+
+            Log.d(TAG, "Service loadingFinished canceled 4: " + loadingId);
         }
     }
 
     private void onNotificationClicked (){
+        // Открываем нашу Activity по клику
         if (_context != null){
             Intent i = new Intent(_context, _context.getClass());
             i.setAction(Intent.ACTION_MAIN);
@@ -281,38 +293,15 @@ public class AndroidNativeFilesLoader extends Object {
             i.addCategory(Intent.CATEGORY_LAUNCHER);
             _context.startActivity(i);
         }
-
-        /*Log.d(TAG, "Service loadingFinished: " + loadingId);
-        synchronized (_activeFilesLoading){
-            if(_activeFilesLoading.containsKey(loadingId)){
-                Intent dm = new Intent(DownloadManager.ACTION_VIEW_DOWNLOADS);
-                dm.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                _context.startActivity(dm);
-            }
-        }*/
-        //Intent dm = new Intent(DownloadManager.ACTION_VIEW_DOWNLOADS);
-        //dm.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        //_context.startActivity(dm);
-
-        /*NotificationManager notificationManager = (NotificationManager)_context.getSystemService(Context.NOTIFICATION_SERVICE);
-        Notification notification = new Notification(icon, message, when);
-
-        Intent notificationIntent = new Intent(context, HomeActivity.class);
-
-        notificationIntent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP
-                | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-
-        PendingIntent intent = PendingIntent.getActivity(context, 0,
-                notificationIntent, 0);
-
-        notification.setLatestEventInfo(context, title, message, intent);
-        notification.flags |= Notification.FLAG_AUTO_CANCEL;
-        notificationManager.notify(0, notification);*/
     }
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////
 
     private void enableTimeoutTimerForLoading(){
+        if (_timeoutTimer != null){
+            return;
+        }
+
         // Код будет исполняться в главном потоке
         final Runnable code = new Runnable() {
             @Override
@@ -324,67 +313,102 @@ public class AndroidNativeFilesLoader extends Object {
                     Iterator it = _activeFilesLoading.entrySet().iterator();
                     while (it.hasNext()) {
                         Map.Entry<Long, LoadingInfo> pair = (Map.Entry) it.next();
+
+                        // Не обрабатываем повторно
+                        if (pair.getValue().processed == true){
+                            continue;
+                        }
+
+                        // Получаем ID
                         long downloadingID = pair.getValue().loadingId;
-                        long createDate = pair.getValue().createTime;
+
+                        // Получаем время запуска
+                        long createDate = pair.getValue().checkTime;
 
                         //Log.d(TAG, "Check timeout for: " + downloadingID);
 
-                        long TIMEOUT = 20000; // 20 Sec
+                        // Получаем таймаут
+                        long TIMEOUT = pair.getValue().timeoutMSec;
+                        if (TIMEOUT == 0){
+                            TIMEOUT = 20000; // 20 Sec
+                        }
 
                         long curTime = System.currentTimeMillis();
-                        if(curTime - createDate > TIMEOUT){
+                        long elapsedTime = (curTime - createDate);
+                        // Защита от перемотки времени
+                        if (elapsedTime < 0){
+                            elapsedTime = TIMEOUT + 1;
+                        }
+                        if(elapsedTime > TIMEOUT){
                             // Обновляем время последней проверки
-                            pair.getValue().createTime = curTime;
+                            pair.getValue().checkTime = curTime;
 
+                            // Получаем курсор по свойствам загрузки
                             final Cursor cursor = _downloadManager.query(new Query().setFilterById(downloadingID));
                             if (cursor.moveToFirst()) {
-
-                                // Проверяем статус, если
+                                // Проверяем статус
                                 int status = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_STATUS));
+                                int reason = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_REASON));
+
+                                boolean needLoadingBreak = false;
+
                                 switch (status) {
-                                    // TODO: Pending надо бы обрабатывать с несколькими попытками
-                                    case DownloadManager.STATUS_PENDING: {
-                                        Log.d("status", "STATUS_PENDING - timeout");
-                                        _downloadManager.remove(downloadingID);
-                                        removeArray.add(downloadingID);
-                                        pair.getValue().failed = true;
-
-                                        // TODO: Причину тоже надо
-                                        // Вызываем коллбек ошибки
-                                        if (_failedCallback != null){
-                                            _failedCallback.onLoadingFailed(pair.getValue(), false);
+                                    case DownloadManager.STATUS_PAUSED:{
+                                        switch (reason){
+                                            case DownloadManager.PAUSED_WAITING_FOR_NETWORK:
+                                            case DownloadManager.PAUSED_QUEUED_FOR_WIFI:
+                                            case DownloadManager.PAUSED_UNKNOWN:
+                                            case DownloadManager.PAUSED_WAITING_TO_RETRY:{
+                                                // Пропала сеть - тоже прерываем загрузку
+                                                needLoadingBreak = true;
+                                                Log.d(TAG, "Loading break for id = " + pair.getKey() + " STATUS_PAUSED, reason = " + reason);
+                                            }break;
                                         }
+                                    }break;
 
-                                        break;
-                                    }
                                     case DownloadManager.STATUS_FAILED: {
-                                        Log.d("status", "STATUS_FAILED - error");
-                                        _downloadManager.remove(downloadingID);
-                                        removeArray.add(downloadingID);
-                                        pair.getValue().failed = true;
+                                        needLoadingBreak = true;
+                                    }break;
 
-                                        // TODO: Причину тоже надо
-                                        // Вызываем коллбек ошибки
-                                        if (_failedCallback != null){
-                                            _failedCallback.onLoadingFailed(pair.getValue(), false);
+                                    // TODO: Pending надо бы обрабатывать с несколькими попытками
+                                    case DownloadManager.STATUS_PENDING:{
+                                        // Для ожидающих проверяем, что у нас есть соединение
+                                        ConnectivityManager cm = (ConnectivityManager)_context.getSystemService(Context.CONNECTIVITY_SERVICE);
+                                        boolean networkIsAvailable = cm.getActiveNetworkInfo() != null && cm.getActiveNetworkInfo().isConnected();
+
+                                        // Если у нас и правда нет интернета - выходим
+                                        if (networkIsAvailable == false){
+                                            Log.d(TAG, "Loading break for id = " + pair.getKey() + " STATUS_PENDING, reason = " + reason);
+                                            needLoadingBreak = true;
                                         }
+                                    }break;
 
-                                        break;
-                                    }
-                                    case DownloadManager.STATUS_PAUSED: {
-                                        Log.d("status", "STATUS_PAUSED - error");
-                                        break;
-                                    }
-                                    case DownloadManager.STATUS_RUNNING: {
-                                        Log.d("status", "STATUS_RUNNING - good");
-                                        break;
-                                    }
+                                    case DownloadManager.STATUS_RUNNING:
                                     case DownloadManager.STATUS_SUCCESSFUL: {
-                                        Log.d("status", "STATUS_SUCCESSFUL - done");
-                                        break;
+                                        //Log.d("status", "STATUS_SUCCESSFUL - done");
+                                    }break;
+                                }
+
+                                if (needLoadingBreak){
+                                    Log.d(TAG, "Loading break for id = " + pair.getKey() + " status = " + status + ", reason = " + reason);
+
+                                    // Удаляем из загрузчика
+                                    _downloadManager.remove(downloadingID);
+
+                                    // В список удаления добавляем
+                                    removeArray.add(downloadingID);
+
+                                    // Выставляем флаг обработанности
+                                    pair.getValue().processed = true;
+
+                                    // TODO: Причину тоже надо
+                                    // Вызываем коллбек ошибки
+                                    if (_failedCallback != null){
+                                        _failedCallback.onLoadingFailed(pair.getValue(), false);
                                     }
                                 }
                             }
+                            cursor.close();
                         }
                     }
 
@@ -397,6 +421,8 @@ public class AndroidNativeFilesLoader extends Object {
             }
         };
 
+        _timeoutTimer = new Timer();
+
         // Запускаем таймер, который раз в секунду будет проверять прогресс загрузки
         _timeoutTimer.schedule(new TimerTask() {
             @Override
@@ -407,6 +433,10 @@ public class AndroidNativeFilesLoader extends Object {
     }
 
     private void enableProgressTimerForLoading(){
+        if (_progressTimer != null){
+            return;
+        }
+
         // Код будет исполняться в главном потоке
         final Runnable code = new Runnable() {
             @Override
@@ -419,8 +449,7 @@ public class AndroidNativeFilesLoader extends Object {
 
                         //Log.d(TAG, "Check progress for 1: " + pair.getKey());
 
-                        Query q = new Query();
-                        q.setFilterById(pair.getKey());
+                        Query q = new Query().setFilterById(pair.getKey());
 
                         //Log.d(TAG, "Check progress for 2: " + pair.getKey());
 
@@ -447,8 +476,10 @@ public class AndroidNativeFilesLoader extends Object {
             }
         };
 
+        _progressTimer = new Timer();
+
         // Запускаем таймер, который раз в секунду будет проверять прогресс загрузки
-        _timeoutTimer.schedule(new TimerTask() {
+        _progressTimer.schedule(new TimerTask() {
             @Override
             public void run() {
                 _context.runOnUiThread(code);
@@ -458,7 +489,7 @@ public class AndroidNativeFilesLoader extends Object {
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    private HashMap<String, Pair<Integer, Long>> getActiveLoads() {
+    private HashMap<String, Pair<Integer, Long>> getActiveLoadsInManager() {
         HashMap<String, Pair<Integer, Long>> activeLoads = new HashMap<>();
         {
             int statuses =  DownloadManager.STATUS_PAUSED |
@@ -497,17 +528,23 @@ public class AndroidNativeFilesLoader extends Object {
         return activeLoads;
     }
 
-    // TODO: проверка хэша файла
     public long startLoading(LoadTask task) {
-        HashMap<String, Pair<Integer, Long>> activeLoads = getActiveLoads();
+        // Стартуем таймеры для прогресса и таймаута
+        enableTimeoutTimerForLoading();
+        enableProgressTimerForLoading();
+
+        // Получаем список уже активных загрузок
+        HashMap<String, Pair<Integer, Long>> activeLoads = getActiveLoadsInManager();
 
         // Идем по списку закачек
         Log.d(TAG, "Service startLoading: " + task.url + " " + task.resultFilePath);
 
+        // Путь к временному файлику
         String tempFilePath = makeTmpFilePath(task.resultFilePath);
 
+        // TODO: TEST!!!!!
         // Уже есть активные такие же загрузки - просто создаем информацию о них
-        if (activeLoads.containsKey(task.url)){
+        if (activeLoads.containsKey(task.url) && false){
             Log.d(TAG, "Service startLoading -1: " + task.url + " " + task.resultFilePath);
             Pair<Integer, Long> pair = activeLoads.get(task.url);
 
@@ -520,17 +557,20 @@ public class AndroidNativeFilesLoader extends Object {
 
             Log.d(TAG, "Service startLoading 0: " + task.url + " " + task.resultFilePath);
 
+            // Создаем задачу на загрузку
             LoadingInfo info = new LoadingInfo();
             info.loadingId = downloadingID;
             info.loadSize = totalBytes;
             info.tmpFilePath = tempFilePath;
             info.resultFilePath = task.resultFilePath;
             info.url = task.url;
-            info.createTime = System.currentTimeMillis();
+            info.checkTime = System.currentTimeMillis();
             info.resultHash = task.resultHash;
+            info.timeoutMSec = task.timeoutMsec;
 
             Log.d(TAG, "Service startLoading 1: " + task.url + " " + task.resultFilePath);
 
+            // Сохраняем в список загрузок
             synchronized (_activeFilesLoading){
                 _activeFilesLoading.put(downloadingID, info);
             }
@@ -544,12 +584,23 @@ public class AndroidNativeFilesLoader extends Object {
             Log.d(TAG, "Service startLoading 2: temp file exists " + task.url + " " + task.resultFilePath);
 
             Log.d(TAG, "Service startLoading 2: check hash");
+
+            // Получаем хэш этого самого файлика
             String currentMd5 = md5(tempFilePath);
+
+            // Если файлик уже загружен и хэш совпадает
             if (currentMd5.equals(task.resultHash)){
+                // Перемещаем файлик на конечное место
                 moveFile(tempFilePath, task.resultFilePath);
-                long fakeLoading = fileIsAlreadyExist(task);
+
+                // Ставим в лупер коллбек успшной загрузки
+                long fakeLoading = processFileIsAlreadyExist(task);
+
+                // Возвращаем наш фейковый id
                 return fakeLoading;
             }else{
+                // Хэш оказался неверный - стартуем загрузку
+
                 Log.d(TAG, "Service startLoading 3: " + task.url + " " + task.resultFilePath);
 
                 // Стартуем загрузку
@@ -566,11 +617,19 @@ public class AndroidNativeFilesLoader extends Object {
 
             if ((task.resultHash != null) && (task.resultHash.isEmpty() == false)){
                 Log.d(TAG, "Service startLoading 2: check hash");
+
+                // Получаем хэш конечного файлика
                 String currentMd5 = md5(task.resultFilePath);
+                // Если все ок
                 if (currentMd5.equals(task.resultHash)){
-                    long fakeLoading = fileIsAlreadyExist(task);
+
+                    // Стартуем фиктивную загрузку
+                    long fakeLoading = processFileIsAlreadyExist(task);
+
                     return fakeLoading;
                 }else{
+                    // Хэш не совпал - стартуем заново
+
                     Log.d(TAG, "Service startLoading 3: " + task.url + " " + task.resultFilePath);
 
                     // Стартуем загрузку
@@ -581,8 +640,10 @@ public class AndroidNativeFilesLoader extends Object {
                     return loadingID;
                 }
             }else{
+                // Не можем проверить хэш - значит грузим заново
                 Log.d(TAG, "Service startLoading: no check hash");
-                long fakeLoading = fileIsAlreadyExist(task);
+                long fakeLoading = processFileIsAlreadyExist(task);
+
                 return fakeLoading;
             }
         }else{
@@ -642,7 +703,7 @@ public class AndroidNativeFilesLoader extends Object {
         return "";
     }
 
-    private long fileIsAlreadyExist(LoadTask task){
+    private long processFileIsAlreadyExist(LoadTask task){
         Log.d(TAG, "Service startLoading: result file already exists " + task.url + " " + task.resultFilePath);
 
         File tempFile = new File(task.resultFilePath);
@@ -657,8 +718,9 @@ public class AndroidNativeFilesLoader extends Object {
         info.tmpFilePath = makeTmpFilePath(task.resultFilePath);
         info.resultFilePath = task.resultFilePath;
         info.url = task.url;
-        info.createTime = System.currentTimeMillis();
+        info.checkTime = System.currentTimeMillis();
         info.resultHash = task.resultHash;
+        info.processed = true;
 
         _context.runOnUiThread(new Runnable() {
             @Override
@@ -679,11 +741,7 @@ public class AndroidNativeFilesLoader extends Object {
         // Получаем URL
         Uri url = Uri.parse(task.url);
 
-        // TODO: Проверка, что файлик уже есть
-        // Выходной файлик
-        //      _context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
-        //      _context.getExternalFilesDir(null)
-        //      Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        // Временный файлик
         File file = new File(makeTmpFilePath(task.resultFilePath));
         Log.d(TAG, "Service startLoading: " + file.getAbsolutePath());
 
@@ -694,6 +752,7 @@ public class AndroidNativeFilesLoader extends Object {
                 .setAllowedOverMetered(true)
                 .setAllowedOverRoaming(true);
 
+        // Установка имени и описания загрузки
         if (task.loadingTitle.isEmpty() == false) {
             request.setTitle(task.loadingTitle);
         }
@@ -722,7 +781,9 @@ public class AndroidNativeFilesLoader extends Object {
                 info.tmpFilePath = file.getAbsolutePath();
                 info.resultFilePath = task.resultFilePath;
                 info.url = task.url;
-                info.createTime = System.currentTimeMillis();
+                info.checkTime = System.currentTimeMillis();
+                info.timeoutMSec = task.timeoutMsec;
+                info.processed = false;
 
                 _activeFilesLoading.put(downloadingID, info);
 
@@ -730,7 +791,7 @@ public class AndroidNativeFilesLoader extends Object {
             }
         }
 
-        return -1;
+        return 0;
     }
 
     private String makeTmpFilePath(String path){
@@ -799,113 +860,4 @@ public class AndroidNativeFilesLoader extends Object {
         }
     }
 
-    /*private void renameTmpFile(String tmpFilePath, String resultPath){
-        File from = new File(tmpFilePath);
-        //File to = new File(tmpFilePath.replaceAll(".tmp_andr_file", ""));
-        //File to = new File(resultPath);
-        if(from.exists()) {
-            try{
-                Files.move(from.toPath(), to.toPath(), StandardCopyOption.REPLACE_EXISTING);
-            }catch (Exception e){
-                Log.d(TAG, "File move ERROR: " + tmpFilePath + " -> " + resultPath);
-            }
-
-            boolean success = from.renameTo(to);
-            if (success){
-                Log.d(TAG, "File move success: " + tmpFilePath + " -> " + resultPath);
-            }else{
-                Log.d(TAG, "File move ERROR: " + tmpFilePath + " -> " + resultPath);
-            }
-        }
-
-        File oldFile = new File(tmpFilePath);
-        File newFile = new File(resultPath);
-        FileChannel outputChannel = null;
-        FileChannel inputChannel = null;
-        try {
-            outputChannel = new FileOutputStream(newFile).getChannel();
-            inputChannel = new FileInputStream(oldFile).getChannel();
-            inputChannel.transferTo(0, inputChannel.size(), outputChannel);
-            inputChannel.close();
-            oldFile.delete();
-        }catch (Exception e){
-            Log.d(TAG, "File move error: " + e.getMessage());
-        } finally {
-            try {
-                if (inputChannel != null) {
-                    inputChannel.close();
-                }
-                if (outputChannel != null) {
-                    outputChannel.close();
-                }
-            }catch (Exception e){
-            }
-        }
-    }*/
-
-    /*public double getPercentProgressInfo(){
-        Vector<Cursor> cursors = new Vector<Cursor>();
-        synchronized (_activeFilesLoading){
-            Iterator it = _activeFilesLoading.entrySet().iterator();
-            while (it.hasNext()) {
-                Map.Entry<Long, LoadingInfo> pair = (Map.Entry)it.next();
-
-                Query q = new Query();
-                q.setFilterById(pair.getKey());
-
-                final Cursor cursor = _downloadManager.query(q);
-                cursors.add(cursor);
-
-            }
-        }
-        // TODO: Thread safe?
-        double bytes_downloaded = 0;
-        double bytes_total = 0;
-        for (Cursor cursor: cursors){
-            cursor.moveToFirst();
-            bytes_downloaded += cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR));
-            bytes_total += cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES));
-            cursor.close();
-        }
-        double totalProgress = bytes_downloaded / bytes_total;
-        return totalProgress;
-    }*/
-
-    /*public Vector<ProgressInfo> getFilesProgressInfo(){
-        Vector<ProgressInfo> result = new Vector<ProgressInfo>();
-        synchronized (_activeFilesLoading){
-            Iterator it = _activeFilesLoading.entrySet().iterator();
-            while (it.hasNext()) {
-                Map.Entry<Long, LoadingInfo> pair = (Map.Entry)it.next();
-
-                Query q = new Query();
-                q.setFilterById(pair.getKey());
-
-                final Cursor cursor = _downloadManager.query(q);
-
-                cursor.moveToFirst();
-                long bytes_downloaded = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR));
-                long bytes_total = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES));
-                cursor.close();
-
-                ProgressInfo info = new ProgressInfo();
-                //info.file = pair.getValue().file;
-                info.url = pair.getValue().url;
-                info.totalSize = bytes_total;
-                info.finishedSize =  bytes_downloaded;
-
-                result.add(info);
-            }
-        }
-        return result;
-    }*/
-
-    /*private boolean isExternalStorageWritable() {
-        return Environment.getExternalStorageState() == Environment.MEDIA_MOUNTED;
-    }*/
-
-    /*private boolean isExternalStorageReadable() {
-        return Environment.getExternalStorageState() == Environment.MEDIA_MOUNTED ||
-                Environment.getExternalStorageState() == Environment.MEDIA_MOUNTED_READ_ONLY;
-    }*/
 }

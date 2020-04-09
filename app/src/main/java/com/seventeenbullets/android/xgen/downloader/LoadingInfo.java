@@ -12,8 +12,8 @@ public class LoadingInfo {
     public String url;
     public String tmpFilePath;
     public String resultFilePath;
-    public long createTime;
-    public boolean completed;
-    public boolean failed;
+    public long checkTime;
+    public boolean processed;
     public String resultHash;
+    public long timeoutMSec;
 }

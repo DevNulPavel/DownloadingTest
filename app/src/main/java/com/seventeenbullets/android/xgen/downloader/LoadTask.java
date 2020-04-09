@@ -6,4 +6,5 @@ public class LoadTask {
     public String resultHash;
     public String loadingTitle;
     public String loadingDescription;
+    public long timeoutMsec;
 }
