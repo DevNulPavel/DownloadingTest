@@ -49,12 +49,13 @@ public class AndroidNativeRequestManager extends Object {
 
     public static void finish(){
         destroyNative();
-        _loader = null;         // TODO: destroy call
+        if (_loader != null){
+            _loader.finishWork();
+            _loader = null;
+        }
     }
 
     public static long startTestLoading(String url, String path, String md5Hash, String title, String description, long timeoutMSec){
-        // TODO: path handle
-
         LoadTask task = new LoadTask();
         task.url = url;
         //task.resultFilePath = _activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS).getAbsolutePath() + "/test.png";

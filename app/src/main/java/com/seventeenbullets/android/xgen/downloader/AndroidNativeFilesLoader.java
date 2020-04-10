@@ -110,17 +110,32 @@ public class AndroidNativeFilesLoader extends Object {
         context.registerReceiver(_notificationClickedReceiver, new IntentFilter(DownloadManager.ACTION_NOTIFICATION_CLICKED));
     }
 
-    // TODO: Вынести в метод, вызываемый руками
     protected void finalize() {
         Log.d(TAG, "Service onDestroy");
 
+        finishWork();
+    }
+
+    public void finishWork(){
+        Log.d(TAG, "Finish work");
+
         // Сброс таймера
-        _timeoutTimer.cancel();
-        _progressTimer.cancel();
+        if (_timeoutTimer != null){
+            _timeoutTimer.cancel();
+        }
+        if (_progressTimer != null){
+            _progressTimer.cancel();
+        }
 
         // Убираем Receiver
-        _context.unregisterReceiver(_loadingFinishedReceiver);
-        _context.unregisterReceiver(_notificationClickedReceiver);
+        if(_loadingFinishedReceiver != null){
+            _context.unregisterReceiver(_loadingFinishedReceiver);
+            _loadingFinishedReceiver = null;
+        }
+        if (_notificationClickedReceiver != null){
+            _context.unregisterReceiver(_notificationClickedReceiver);
+            _loadingFinishedReceiver = null;
+        }
     }
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -220,6 +235,9 @@ public class AndroidNativeFilesLoader extends Object {
             else if (status == DownloadManager.STATUS_FAILED) {
                 int reason = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_REASON));
 
+                // Удаляем наш временный файлик
+                removeFile(info.tmpFilePath);
+
                 Log.d(TAG, "Service loadingFinished failed 1: " + loadingId);
 
                 switch (reason) {
@@ -256,6 +274,9 @@ public class AndroidNativeFilesLoader extends Object {
             else if (status == DownloadManager.STATUS_PAUSED || status == DownloadManager.STATUS_PENDING || status == DownloadManager.STATUS_RUNNING) {
                 Log.d(TAG, "Service loadingFinished: loading interrupt " + loadingId);
 
+                // Удаляем наш временный файлик если есть
+                removeFile(info.tmpFilePath);
+
                 // Принудительно убираем загрузку
                 _downloadManager.remove(loadingId);
 
@@ -271,6 +292,9 @@ public class AndroidNativeFilesLoader extends Object {
         // При прерывании загрузки бывают случаи, когда у нас нету информации о загрузки
         else{
             Log.d(TAG, "Service loadingFinished canceled 1: " + loadingId);
+
+            // Удаляем наш временный файлик если есть
+            removeFile(info.tmpFilePath);
 
             Log.d(TAG, "Service loadingFinished canceled 3: " + loadingId);
 
@@ -401,6 +425,9 @@ public class AndroidNativeFilesLoader extends Object {
                                     // Выставляем флаг обработанности
                                     pair.getValue().processed = true;
 
+                                    // Удаляем наш временный файлик если есть
+                                    removeFile(pair.getValue().tmpFilePath);
+
                                     // TODO: Причину тоже надо
                                     // Вызываем коллбек ошибки
                                     if (_failedCallback != null){
@@ -429,7 +456,7 @@ public class AndroidNativeFilesLoader extends Object {
             public void run() {
                 _context.runOnUiThread(code);
             }
-        }, 1000, 1000); // TODO: Check period
+        }, 1000, 1000);
     }
 
     private void enableProgressTimerForLoading(){
@@ -442,25 +469,26 @@ public class AndroidNativeFilesLoader extends Object {
             @Override
             public void run() {
                 synchronized (_activeFilesLoading){
+                    // Создаем итератор
                     Iterator it = _activeFilesLoading.entrySet().iterator();
                     while (it.hasNext()) {
-                        // TODO: проверить, начинается ли с начала или нет?
+                        // Берем элемент
                         Map.Entry<Long, LoadingInfo> pair = (Map.Entry)it.next();
 
                         //Log.d(TAG, "Check progress for 1: " + pair.getKey());
 
+                        // Создаем запрос для фильтрации
                         Query q = new Query().setFilterById(pair.getKey());
 
                         //Log.d(TAG, "Check progress for 2: " + pair.getKey());
 
-                        // Проверка на hasFirst
                         // Получаем сколкьо загрузили
                         final Cursor cursor = _downloadManager.query(q);
+                        // Проверка на hasFirst
                         if (cursor.moveToFirst()){
                             // Сколько байт загружено
                             long bytes_downloaded = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR));
                             long bytes_total = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES));
-                            cursor.close();
 
                             //Log.d(TAG, "Check progress for 3: " + pair.getKey());
 
@@ -471,6 +499,7 @@ public class AndroidNativeFilesLoader extends Object {
 
                             //Log.d(TAG, "Check progress for 4: " + pair.getKey());
                         }
+                        cursor.close();
                     }
                 }
             }
@@ -484,7 +513,7 @@ public class AndroidNativeFilesLoader extends Object {
             public void run() {
                 _context.runOnUiThread(code);
             }
-        }, 250, 250); // TODO: Check period
+        }, 250, 250);
     }
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -492,6 +521,8 @@ public class AndroidNativeFilesLoader extends Object {
     private HashMap<String, Pair<Integer, Long>> getActiveLoadsInManager() {
         HashMap<String, Pair<Integer, Long>> activeLoads = new HashMap<>();
         {
+            // Вкидываем задачи на паузе, ожидании и активные
+            // В случае отсутствия соединения - обработается отвалом по таймеру
             int statuses =  DownloadManager.STATUS_PAUSED |
                             DownloadManager.STATUS_PENDING |
                             DownloadManager.STATUS_RUNNING;
@@ -501,15 +532,14 @@ public class AndroidNativeFilesLoader extends Object {
             //DownloadManager.STATUS_SUCCESSFUL;
             Query q = new Query().setFilterByStatus(statuses);
 
+            // Получаем индексы колонок
             Cursor cursor = _downloadManager.query(q);
             int idIndex = cursor.getColumnIndex(DownloadManager.COLUMN_ID);
             int idStatus = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS);
             int idUri = cursor.getColumnIndex(DownloadManager.COLUMN_URI);
             int idTotalBytes = cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES);
-            //int idFilename = cursor.getColumnIndex(DownloadManager.COLUMN_LOCAL_FILENAME);
 
-            boolean hasFirst = cursor.moveToFirst();
-            if (hasFirst) {
+            if (cursor.moveToFirst()) {
                 do{
                     int id = cursor.getInt(idIndex);
                     int status = cursor.getInt(idStatus);
@@ -542,18 +572,13 @@ public class AndroidNativeFilesLoader extends Object {
         // Путь к временному файлику
         String tempFilePath = makeTmpFilePath(task.resultFilePath);
 
-        // TODO: TEST!!!!!
         // Уже есть активные такие же загрузки - просто создаем информацию о них
-        if (activeLoads.containsKey(task.url) && false){
+        if (activeLoads.containsKey(task.url)){
             Log.d(TAG, "Service startLoading -1: " + task.url + " " + task.resultFilePath);
             Pair<Integer, Long> pair = activeLoads.get(task.url);
 
             long downloadingID = pair.first;
             long totalBytes = pair.second;
-
-            Log.d(TAG, "Service startLoading -0.5: " + task.url + " " + task.resultFilePath);
-            //Uri url = Uri.parse(task.url);
-            //String filename = url.getLastPathSegment();
 
             Log.d(TAG, "Service startLoading 0: " + task.url + " " + task.resultFilePath);
 
