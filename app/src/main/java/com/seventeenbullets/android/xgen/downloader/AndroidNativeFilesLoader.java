@@ -225,7 +225,7 @@ public class AndroidNativeFilesLoader extends Object {
                         @Override
                         public void run(String curHash) {
                             // Сравниваем хэши
-                            if (curHash.equals(info.resultFilePath)){
+                            if (curHash.equals(info.resultHash)){
                                 Log.d(TAG, "Service loadingFinished success 1: hash check SUCCESS " + fakeLoadingId);
 
                                 // Перемещаем наш файлик на его конечное место загрузки
