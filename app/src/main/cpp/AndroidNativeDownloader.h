@@ -8,7 +8,7 @@
 typedef std::vector<int8_t > AndroidNativeDataBuffer;
 typedef std::function<void(long handle)> AndroidNativeSuccessCallback;
 typedef std::function<void(long handle, double totalSize, double loadedSize)> AndroidNativeRequestProgressCallback;
-typedef std::function<void(long handle, long httpCode, int errorCode, bool nativeCanceled)> AndroidNativeFailureCallback;
+typedef std::function<void(long handle, bool nativeCanceled, int errorCode)> AndroidNativeFailureCallback;
 
 long sendRequest(const std::string& url,
                  const std::string& filePath,

@@ -14,7 +14,7 @@ public class AndroidNativeRequestManager extends Object {
     private static native void destroyNative();
     private static native void loadingSuccess(long handle);
     private static native void loadingProgress(long handle, long totalSize, long loadedSize);
-    private static native void loadingFailed(long handle, boolean canceled);
+    private static native void loadingFailed(long handle, boolean canceled, int errorCode);
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -34,8 +34,8 @@ public class AndroidNativeRequestManager extends Object {
 
     private static AndroidNativeFilesLoader.LoadingFailedCallback _failedCallback = new AndroidNativeFilesLoader.LoadingFailedCallback() {
         @Override
-        public void onLoadingFailed(LoadingInfo info, boolean canceled) {
-            loadingFailed(info.loadingId, canceled);
+        public void onLoadingFailed(LoadingInfo info, boolean canceled, int errorCode) {
+            loadingFailed(info.loadingId, canceled, errorCode);
         }
     };
 

@@ -96,14 +96,14 @@ Java_com_seventeenbullets_android_xgen_downloader_AndroidNativeRequestManager_lo
 
 // Загрузка c ошибкой
 extern "C" void __attribute__((visibility("default")))
-Java_com_seventeenbullets_android_xgen_downloader_AndroidNativeRequestManager_loadingFailed(JNIEnv *env, jclass /* this */, jlong loadingHandle, bool canceled) {
+Java_com_seventeenbullets_android_xgen_downloader_AndroidNativeRequestManager_loadingFailed(JNIEnv *env, jclass /* this */, jlong loadingHandle, bool canceled, int errorCode) {
     std::lock_guard<std::mutex> lock(_loadsMutex);
 
     auto it = _activeLoads.find(loadingHandle);
     if(it != _activeLoads.end()){
         // Коллбек завершения
         if(it->second.failureCallback){
-            it->second.failureCallback(loadingHandle, 0, 0, canceled); // TODO: Коды ошибок
+            it->second.failureCallback(loadingHandle, canceled, errorCode); // TODO: Коды ошибок
         }
 
         // Удаляем из активных
@@ -160,19 +160,19 @@ void testNativeRequest() {
     AndroidNativeRequestProgressCallback progressCallback = [](long handle, double totalSize, double loadedSize){
         printf("Progress: %d / %d", loadedSize, totalSize);
     };
-    AndroidNativeFailureCallback failCallback = [](long handle, long httpCode, int errorCode, bool nativeCanceled){
+    AndroidNativeFailureCallback failCallback = [](long handle, bool nativeCanceled, int errorCode){
         printf("Failed");
     };
 
     // http://pi2.17bullets.com/images/event/icon/eventicon_pvp_new.png?10250_
     // http://speedtest.tele2.net/
     // https://speed.hetzner.de/100MB.bin
-    // https://speed.hetzner.de/1GB.bin
+    // https://speed.hetzner.de/1GB.bin - e5c834fbdaa6bfd8eac5eb9404eefdd4
     // https://speed.hetzner.de/10GB.bin
     // http://speedtest.ftp.otenet.gr/files/test100Mb.db
     sendRequest("https://speed.hetzner.de/1GB.bin",
-                "/data/user/0/com.example.downloadingtest/files/download/1GB.bin",
-                "", //"291addb3a362f2f69b52bfe766546c8e",
+                "/data/user/0/com.example.downloadingtest/files/download/1GB_123.bin",
+                "e5c834fbdaa6bfd8eac5eb9404eefdd4", //"291addb3a362f2f69b52bfe766546c8e",
                 "Loading title",
                 "Loading description",
                 successCallback, progressCallback, failCallback,
