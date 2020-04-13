@@ -21,21 +21,21 @@ public class AndroidNativeRequestManager extends Object {
     private static AndroidNativeFilesLoader.LoadingSuccessCallback _successCallback = new AndroidNativeFilesLoader.LoadingSuccessCallback() {
         @Override
         public void onLoaded(LoadingInfo info) {
-            loadingSuccess(info.loadingId);
+            loadingSuccess(info.fakeLoadingId);
         }
     };
 
     private static AndroidNativeFilesLoader.LoadingProgressCallback _progressCallback = new AndroidNativeFilesLoader.LoadingProgressCallback() {
         @Override
         public void onLoadingPorgress(LoadingInfo info, long totalSize, long loadedSize) {
-            loadingProgress(info.loadingId, totalSize, loadedSize);
+            loadingProgress(info.fakeLoadingId, totalSize, loadedSize);
         }
     };
 
     private static AndroidNativeFilesLoader.LoadingFailedCallback _failedCallback = new AndroidNativeFilesLoader.LoadingFailedCallback() {
         @Override
         public void onLoadingFailed(LoadingInfo info, boolean canceled, int errorCode) {
-            loadingFailed(info.loadingId, canceled, errorCode);
+            loadingFailed(info.fakeLoadingId, canceled, errorCode);
         }
     };
 

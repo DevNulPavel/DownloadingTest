@@ -7,7 +7,8 @@ import java.util.Calendar;
 import java.sql.Time;
 
 public class LoadingInfo {
-    public long loadingId;
+    public long fakeLoadingId;
+    public long nativeLoadingId;
     public long loadSize;
     public String url;
     public String tmpFilePath;

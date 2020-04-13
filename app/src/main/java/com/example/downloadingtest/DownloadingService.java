@@ -174,7 +174,7 @@ public class DownloadingService extends Service {
         cursor.close();
 
         LoadingInfo info = new LoadingInfo();
-        info.loadingId = downloadingID;
+        info.nativeLoadingId = downloadingID;
         info.loadSize = bytes_total;
         //info.file = file_path;
         info.url = url_string;

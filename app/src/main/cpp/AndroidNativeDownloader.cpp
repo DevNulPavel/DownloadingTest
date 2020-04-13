@@ -96,14 +96,14 @@ Java_com_seventeenbullets_android_xgen_downloader_AndroidNativeRequestManager_lo
 
 // Загрузка c ошибкой
 extern "C" void __attribute__((visibility("default")))
-Java_com_seventeenbullets_android_xgen_downloader_AndroidNativeRequestManager_loadingFailed(JNIEnv *env, jclass /* this */, jlong loadingHandle, bool canceled, int errorCode) {
+Java_com_seventeenbullets_android_xgen_downloader_AndroidNativeRequestManager_loadingFailed(JNIEnv *env, jclass /* this */, jlong loadingHandle, jboolean canceled, jint errorCode) {
     std::lock_guard<std::mutex> lock(_loadsMutex);
 
     auto it = _activeLoads.find(loadingHandle);
     if(it != _activeLoads.end()){
         // Коллбек завершения
         if(it->second.failureCallback){
-            it->second.failureCallback(loadingHandle, canceled, errorCode); // TODO: Коды ошибок
+            it->second.failureCallback(loadingHandle, canceled, static_cast<AndroidNativeDownloaderErrors>(errorCode)); // TODO: Коды ошибок
         }
 
         // Удаляем из активных
@@ -160,7 +160,7 @@ void testNativeRequest() {
     AndroidNativeRequestProgressCallback progressCallback = [](long handle, double totalSize, double loadedSize){
         printf("Progress: %d / %d", loadedSize, totalSize);
     };
-    AndroidNativeFailureCallback failCallback = [](long handle, bool nativeCanceled, int errorCode){
+    AndroidNativeFailureCallback failCallback = [](long handle, bool nativeCanceled, AndroidNativeDownloaderErrors errorCode){
         printf("Failed");
     };
 
